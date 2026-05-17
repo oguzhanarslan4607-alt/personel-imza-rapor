@@ -643,23 +643,33 @@ button:disabled {
 
 .signature-table th:nth-child(2),
 .signature-table td:nth-child(2) {
-  width: 54mm;
+  width: 43mm;
 }
 
 .signature-table th:nth-child(3),
 .signature-table td:nth-child(3) {
-  width: 28mm;
+  width: 25mm;
 }
 
 .signature-table th:nth-child(4),
 .signature-table td:nth-child(4) {
-  width: 21mm;
-  text-align: center;
+  width: 25mm;
 }
 
 .signature-table th:nth-child(5),
 .signature-table td:nth-child(5) {
-  width: 34mm;
+  width: 19mm;
+  text-align: center;
+}
+
+.signature-table th:nth-child(6),
+.signature-table td:nth-child(6) {
+  width: 43mm;
+}
+
+.signature-table th:nth-child(7),
+.signature-table td:nth-child(7) {
+  width: 30mm;
 }
 
 .sheet-footer {

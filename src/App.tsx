@@ -1111,10 +1111,11 @@ function SheetPage({
           <tr>
             <th>No</th>
             <th>Ad Soyad</th>
+            <th>Ünvan</th>
             <th>Departman</th>
             <th>Giriş Saati</th>
             <th>İmza</th>
-            <th>Geç Kalma Açıklaması</th>
+            <th>Açıklama</th>
           </tr>
         </thead>
         <tbody>
@@ -1122,6 +1123,7 @@ function SheetPage({
             <tr key={member.id}>
               <td>{member.order}</td>
               <td>{member.name}</td>
+              <td>{member.title}</td>
               <td>{member.department}</td>
               <td />
               <td />
