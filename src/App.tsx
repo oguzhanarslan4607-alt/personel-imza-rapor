@@ -132,6 +132,7 @@ function App() {
   const [reportStart, setReportStart] = useState(monthStartIso());
   const [reportEnd, setReportEnd] = useState(todayIso());
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
+  const [reportStaffId, setReportStaffId] = useState("all");
   const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "" });
   const [importText, setImportText] = useState("");
   const [busy, setBusy] = useState(false);
@@ -165,7 +166,9 @@ function App() {
   }, [activeStaff, drafts, settings]);
 
   const reportStats = useMemo(() => {
-    return reportRows.reduce(
+    const filteredRows = reportStaffId === "all" ? reportRows : reportRows.filter((record) => record.staffId === reportStaffId);
+
+    return filteredRows.reduce(
       (stats, record) => {
         stats.total += 1;
         stats[record.status] += 1;
@@ -173,7 +176,49 @@ function App() {
       },
       { total: 0, present: 0, late: 0, absent: 0, excused: 0 },
     );
-  }, [reportRows]);
+  }, [reportRows, reportStaffId]);
+
+  const filteredReportRows = useMemo(() => {
+    return reportStaffId === "all" ? reportRows : reportRows.filter((record) => record.staffId === reportStaffId);
+  }, [reportRows, reportStaffId]);
+
+  const reportSummaryRows = useMemo(() => {
+    const summary = new Map<
+      string,
+      {
+        staff: StaffMember;
+        total: number;
+        present: number;
+        late: number;
+        absent: number;
+        excused: number;
+      }
+    >();
+
+    filteredReportRows.forEach((record) => {
+      const staffMember = staffById.get(record.staffId);
+      if (!staffMember) return;
+
+      const current =
+        summary.get(record.staffId) ??
+        {
+          staff: staffMember,
+          total: 0,
+          present: 0,
+          late: 0,
+          absent: 0,
+          excused: 0,
+        };
+
+      current.total += 1;
+      current[record.status] += 1;
+      summary.set(record.staffId, current);
+    });
+
+    return Array.from(summary.values()).sort(
+      (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
+    );
+  }, [filteredReportRows, staffById, staffRankById]);
 
   async function refreshStaff() {
     setBusy(true);
@@ -468,7 +513,7 @@ function App() {
   function handleExportCsv() {
     const rows = [
       ["Tarih", "Personel", "Departman", "Giriş Saati", "Durum", "Açıklama"],
-      ...reportRows.map((record) => {
+      ...filteredReportRows.map((record) => {
         const member = staffById.get(record.staffId);
         return [
           record.date,
@@ -486,7 +531,8 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `personel-rapor-${reportStart}-${reportEnd}.csv`;
+    const personPart = reportStaffId === "all" ? "tum-personel" : staffById.get(reportStaffId)?.name ?? "personel";
+    link.download = `personel-rapor-${personPart}-${reportStart}-${reportEnd}.csv`;
     link.click();
     URL.revokeObjectURL(url);
   }
@@ -730,11 +776,22 @@ function App() {
                 Bitiş
                 <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} />
               </label>
+              <label className="wide-filter">
+                Personel
+                <select value={reportStaffId} onChange={(event) => setReportStaffId(event.target.value)}>
+                  <option value="all">Tüm personel</option>
+                  {activeStaff.map((member, index) => (
+                    <option key={member.id} value={member.id}>
+                      {index + 1}. {member.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className="secondary-action" onClick={() => void handleLoadReport()} disabled={busy}>
                 <BarChart3 size={18} aria-hidden="true" />
                 Getir
               </button>
-              <button className="primary-action" onClick={handleExportCsv} disabled={!reportRows.length}>
+              <button className="primary-action" onClick={handleExportCsv} disabled={!filteredReportRows.length}>
                 <FileDown size={18} aria-hidden="true" />
                 CSV
               </button>
@@ -746,6 +803,48 @@ function App() {
               <Metric label="Geç" value={reportStats.late} tone="amber" />
               <Metric label="Gelmedi" value={reportStats.absent} tone="red" />
               <Metric label="İzinli" value={reportStats.excused} tone="blue" />
+            </section>
+
+            <section className="data-panel report-summary-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Aylık Özet</h2>
+                  <span>{reportStart} - {reportEnd}</span>
+                </div>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table summary-table">
+                  <thead>
+                    <tr>
+                      <th>No</th>
+                      <th>Personel</th>
+                      <th>Departman</th>
+                      <th>Kayıt</th>
+                      <th>Geldi</th>
+                      <th>Geç</th>
+                      <th>Gelmedi</th>
+                      <th>İzinli</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {reportSummaryRows.map((row) => (
+                      <tr key={row.staff.id}>
+                        <td className="number-cell">{(staffRankById.get(row.staff.id) ?? 0) + 1}</td>
+                        <td>
+                          <strong>{row.staff.name}</strong>
+                          <span>{row.staff.title}</span>
+                        </td>
+                        <td>{row.staff.department}</td>
+                        <td>{row.total}</td>
+                        <td>{row.present}</td>
+                        <td>{row.late}</td>
+                        <td>{row.absent}</td>
+                        <td>{row.excused}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             <section className="data-panel">
@@ -762,7 +861,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {reportRows.map((record) => {
+                    {filteredReportRows.map((record) => {
                       const member = staffById.get(record.staffId);
                       return (
                         <tr key={record.id}>

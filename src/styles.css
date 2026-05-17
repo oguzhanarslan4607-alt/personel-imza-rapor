@@ -283,6 +283,34 @@ button {
   padding: 12px;
 }
 
+.wide-filter {
+  min-width: 240px;
+}
+
+.panel-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  border-bottom: 1px solid var(--line);
+  background: #f8fafc;
+}
+
+.panel-heading h2 {
+  margin: 0;
+  font-size: 17px;
+  line-height: 1.25;
+}
+
+.panel-heading span {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -475,6 +503,13 @@ button:disabled {
 .attendance-table td:last-child {
   width: 58px;
   text-align: center;
+}
+
+.summary-table th:nth-child(n + 4),
+.summary-table td:nth-child(n + 4) {
+  width: 86px;
+  text-align: center;
+  font-weight: 800;
 }
 
 .status-pill {
