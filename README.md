@@ -1,0 +1,51 @@
+# Personel İmza ve Devam Takibi
+
+Firebase/Firestore destekli personel devam uygulaması. Günlük fiziksel imza föyü üretir, geç kalma açıklamalarını dijital kayda alır ve tarih aralığına göre rapor/CSV çıktısı verir.
+
+## Çalıştırma
+
+```bash
+npm.cmd install
+npm.cmd run dev
+```
+
+Yerel adres:
+
+```text
+http://127.0.0.1:5173/
+```
+
+## Firebase Bağlantısı
+
+1. Firebase Console üzerinde bir proje oluşturun.
+2. Firestore Database'i etkinleştirin.
+3. Authentication bölümünde Anonymous sign-in sağlayıcısını açın.
+4. `.env.example` dosyasını `.env` olarak kopyalayın.
+5. Firebase web app config değerlerini `.env` içine girin.
+
+```env
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+```
+
+Config girilmezse uygulama localStorage ile yerel taslak modda çalışır.
+
+## Firestore Koleksiyonları
+
+- `staff`: personel kartları
+- `attendance`: günlük giriş kayıtları
+
+Güvenlik kuralları için başlangıç dosyası: `firebase.rules`.
+
+## Kullanım Akışı
+
+1. `Personel` ekranından personel ekleyin veya `85 Şablon` ile örnek satır oluşturun.
+2. `İmza Föyü` ekranından seçili gün için A4 ön/arka imza föyünü yazdırın.
+3. Gün sonunda `Günlük Kayıt` ekranında giriş saati, durum ve açıklamaları girip kaydedin.
+4. `Raporlar` ekranında tarih aralığı seçip kayıtları getirin veya CSV alın.
+
+Varsayılan baskı düzeni 85 kişiyi tek kağıdın ön/arka yüzüne sığdırmak için sayfa başına 43 satır kullanır.
