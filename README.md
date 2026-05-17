@@ -19,7 +19,7 @@ http://127.0.0.1:5173/
 
 1. Firebase Console üzerinde bir proje oluşturun.
 2. Firestore Database'i etkinleştirin.
-3. Authentication bölümünde Anonymous sign-in sağlayıcısını açın.
+3. Authentication bölümünde Email/Password sağlayıcısını açın.
 4. `.env.example` dosyasını `.env` olarak kopyalayın.
 5. Firebase web app config değerlerini `.env` içine girin.
 
@@ -34,8 +34,21 @@ VITE_FIREBASE_APP_ID=
 
 Config girilmezse uygulama localStorage ile yerel taslak modda çalışır.
 
+## Yönetici Girişi
+
+Uygulamada kayıt olma ekranı yoktur. Yönetici kullanıcılarını Firebase Console üzerinden oluşturun:
+
+1. `Authentication > Users > Add user` ile e-posta ve şifre oluşturun.
+2. Oluşturulan kullanıcının `User UID` değerini kopyalayın.
+3. Firestore'da `admins` koleksiyonu oluşturun.
+4. Belge ID'si olarak kullanıcının UID değerini yazın.
+5. Belgeye örnek alanlar ekleyin: `email` string, `role` string.
+
+Firestore kuralları `staff` ve `attendance` verilerine sadece `admins/{uid}` belgesi bulunan kullanıcıların erişmesine izin verir.
+
 ## Firestore Koleksiyonları
 
+- `admins`: yönetici yetki kayıtları
 - `staff`: personel kartları
 - `attendance`: günlük giriş kayıtları
 

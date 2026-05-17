@@ -3,11 +3,16 @@ import {
   CalendarCheck,
   Database,
   FileDown,
+  KeyRound,
+  Lock,
+  LogOut,
+  Mail,
   Plus,
   Printer,
   RefreshCw,
   Save,
   Settings,
+  ShieldCheck,
   Trash2,
   Upload,
   Users,
@@ -20,18 +25,24 @@ import {
   deleteStaffMember,
   firebaseConfigured,
   firebaseProjectId,
+  hasAdminAccess,
   loadAttendanceByDate,
   loadAttendanceRange,
   loadStaff,
   makeAttendanceId,
+  observeAdminAuth,
   saveAttendanceRecord,
   saveStaffMember,
   saveStaffMembers,
+  signInAdmin,
+  signOutAdmin,
+  type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
 import type { AppSettings, AttendanceRecord, AttendanceStatus, StaffMember } from "./types";
 
 type TabKey = "daily" | "print" | "reports" | "staff" | "settings";
+type AccessState = "idle" | "checking" | "allowed" | "denied";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -81,9 +92,34 @@ function csvEscape(value: string | number) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
+function getLoginErrorMessage(error: unknown) {
+  const code =
+    typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
+
+  if (code.includes("invalid-credential") || code.includes("wrong-password") || code.includes("user-not-found")) {
+    return "E-posta veya şifre hatalı.";
+  }
+
+  if (code.includes("too-many-requests")) {
+    return "Çok fazla deneme yapıldı. Bir süre bekleyip tekrar deneyin.";
+  }
+
+  if (code.includes("network")) {
+    return "İnternet bağlantısı kurulamadı.";
+  }
+
+  return "Giriş yapılamadı. Bilgileri kontrol edip tekrar deneyin.";
+}
+
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>("daily");
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
+  const [admin, setAdmin] = useState<AdminUser | null>(null);
+  const [authChecked, setAuthChecked] = useState(!firebaseConfigured);
+  const [accessState, setAccessState] = useState<AccessState>(firebaseConfigured ? "idle" : "allowed");
+  const [loginEmail, setLoginEmail] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginError, setLoginError] = useState("");
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [drafts, setDrafts] = useState<Record<string, DraftRecord>>({});
@@ -101,6 +137,7 @@ function App() {
     () => chunk(activeStaff, Math.max(1, settings.rowsPerPrintSide)),
     [activeStaff, settings.rowsPerPrintSide],
   );
+  const canUseApp = !firebaseConfigured || (Boolean(admin) && accessState === "allowed");
 
   const dailyStats = useMemo(() => {
     return activeStaff.reduce(
@@ -160,17 +197,79 @@ function App() {
   }
 
   useEffect(() => {
-    void refreshStaff();
+    if (!firebaseConfigured) return;
+
+    return observeAdminAuth((user) => {
+      setAdmin(user);
+      setAuthChecked(true);
+      setLoginError("");
+
+      if (!user) {
+        setAccessState("idle");
+        setStaff([]);
+        setDrafts({});
+        setReportRows([]);
+        return;
+      }
+
+      setAccessState("checking");
+      void hasAdminAccess()
+        .then((allowed) => {
+          setAccessState(allowed ? "allowed" : "denied");
+          if (!allowed) {
+            setStaff([]);
+            setDrafts({});
+            setReportRows([]);
+          }
+        })
+        .catch(() => {
+          setAccessState("denied");
+          setStaff([]);
+          setDrafts({});
+          setReportRows([]);
+        });
+    });
   }, []);
 
   useEffect(() => {
+    if (!canUseApp) return;
+    void refreshStaff();
+  }, [canUseApp, admin?.uid]);
+
+  useEffect(() => {
+    if (!canUseApp) return;
     void refreshAttendance(selectedDate);
-  }, [selectedDate]);
+  }, [canUseApp, admin?.uid, selectedDate]);
 
   function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
     setSettings(next);
     saveSettings(next);
+  }
+
+  async function handleLogin(event: FormEvent) {
+    event.preventDefault();
+    setLoginError("");
+    setBusy(true);
+    try {
+      await signInAdmin(loginEmail.trim(), loginPassword);
+      setLoginPassword("");
+    } catch (error) {
+      setLoginError(getLoginErrorMessage(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleSignOut() {
+    setBusy(true);
+    try {
+      await signOutAdmin();
+      setActiveTab("daily");
+      setMessage("");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function updateDraft(staffId: string, patch: Partial<DraftRecord>) {
@@ -219,6 +318,8 @@ function App() {
       await Promise.all(records.map((record) => saveAttendanceRecord(record)));
       setMessage(`${formatDateTr(selectedDate)} için ${records.length} kayıt kaydedildi.`);
       await refreshAttendance(selectedDate);
+    } catch {
+      setMessage("Kayıt kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -229,6 +330,8 @@ function App() {
     try {
       await deleteAttendanceRecord(makeAttendanceId(selectedDate, staffId));
       setDrafts((previous) => ({ ...previous, [staffId]: emptyDraft }));
+    } catch {
+      setMessage("Kayıt temizlenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -252,6 +355,8 @@ function App() {
       await saveStaffMember(member);
       setNewStaff({ name: "", department: "", title: "" });
       await refreshStaff();
+    } catch {
+      setMessage("Personel eklenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -284,6 +389,8 @@ function App() {
       setImportText("");
       await refreshStaff();
       setMessage(`${members.length} personel eklendi.`);
+    } catch {
+      setMessage("Toplu personel aktarılamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -297,6 +404,8 @@ function App() {
       await saveStaffMembers(members);
       await refreshStaff();
       setMessage("85 satırlık personel şablonu oluşturuldu.");
+    } catch {
+      setMessage("Personel şablonu oluşturulamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -307,6 +416,8 @@ function App() {
     try {
       await saveStaffMember({ ...member, active: !member.active });
       await refreshStaff();
+    } catch {
+      setMessage("Personel durumu güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -319,6 +430,8 @@ function App() {
     try {
       await deleteStaffMember(member.id);
       await refreshStaff();
+    } catch {
+      setMessage("Personel silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -335,6 +448,8 @@ function App() {
           return (staffById.get(a.staffId)?.order ?? 0) - (staffById.get(b.staffId)?.order ?? 0);
         }),
       );
+    } catch {
+      setMessage("Rapor alınamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -366,6 +481,32 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  if (!authChecked) {
+    return <AuthStatusScreen title="Oturum kontrol ediliyor" />;
+  }
+
+  if (firebaseConfigured && admin && accessState === "checking") {
+    return <AuthStatusScreen title="Yetki kontrol ediliyor" email={admin.email} onSignOut={() => void handleSignOut()} />;
+  }
+
+  if (firebaseConfigured && admin && accessState === "denied") {
+    return <AccessDeniedScreen email={admin.email} onSignOut={() => void handleSignOut()} busy={busy} />;
+  }
+
+  if (firebaseConfigured && !admin) {
+    return (
+      <LoginScreen
+        email={loginEmail}
+        password={loginPassword}
+        error={loginError}
+        busy={busy}
+        onEmailChange={setLoginEmail}
+        onPasswordChange={setLoginPassword}
+        onSubmit={(event) => void handleLogin(event)}
+      />
+    );
+  }
+
   return (
     <>
       <div className="app-shell screen-only">
@@ -379,6 +520,18 @@ function App() {
               <Database size={16} aria-hidden="true" />
               {firebaseConfigured ? `Firebase ${firebaseProjectId}` : "Yerel taslak"}
             </span>
+            {firebaseConfigured && admin && (
+              <>
+                <span className="user-badge">
+                  <ShieldCheck size={16} aria-hidden="true" />
+                  {admin.email}
+                </span>
+                <button className="secondary-action" onClick={() => void handleSignOut()} disabled={busy}>
+                  <LogOut size={18} aria-hidden="true" />
+                  Çıkış
+                </button>
+              </>
+            )}
             <button className="icon-button" onClick={() => void refreshStaff()} title="Yenile" aria-label="Yenile">
               <RefreshCw size={18} />
             </button>
@@ -781,6 +934,132 @@ function App() {
         ))}
       </div>
     </>
+  );
+}
+
+function LoginScreen({
+  email,
+  password,
+  error,
+  busy,
+  onEmailChange,
+  onPasswordChange,
+  onSubmit,
+}: {
+  email: string;
+  password: string;
+  error: string;
+  busy: boolean;
+  onEmailChange: (value: string) => void;
+  onPasswordChange: (value: string) => void;
+  onSubmit: (event: FormEvent) => void;
+}) {
+  return (
+    <main className="auth-page screen-only">
+      <form className="login-panel" onSubmit={onSubmit}>
+        <div className="login-brand">
+          <span className="login-icon">
+            <ShieldCheck size={24} aria-hidden="true" />
+          </span>
+          <div>
+            <p className="eyebrow">Yönetici girişi</p>
+            <h1>Personel Devam Sistemi</h1>
+          </div>
+        </div>
+
+        <label>
+          E-posta
+          <div className="input-with-icon">
+            <Mail size={17} aria-hidden="true" />
+            <input
+              type="email"
+              value={email}
+              onChange={(event) => onEmailChange(event.target.value)}
+              autoComplete="username"
+              required
+            />
+          </div>
+        </label>
+
+        <label>
+          Şifre
+          <div className="input-with-icon">
+            <Lock size={17} aria-hidden="true" />
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => onPasswordChange(event.target.value)}
+              autoComplete="current-password"
+              required
+            />
+          </div>
+        </label>
+
+        {error && <div className="form-error">{error}</div>}
+
+        <button className="primary-action login-action" type="submit" disabled={busy}>
+          <KeyRound size={18} aria-hidden="true" />
+          {busy ? "Giriş yapılıyor" : "Giriş Yap"}
+        </button>
+
+        <div className="login-meta">
+          <Database size={16} aria-hidden="true" />
+          Firebase {firebaseProjectId}
+        </div>
+      </form>
+    </main>
+  );
+}
+
+function AuthStatusScreen({
+  title,
+  email,
+  onSignOut,
+}: {
+  title: string;
+  email?: string | null;
+  onSignOut?: () => void;
+}) {
+  return (
+    <main className="auth-page screen-only">
+      <section className="login-panel auth-status-panel">
+        <span className="login-icon">
+          <ShieldCheck size={24} aria-hidden="true" />
+        </span>
+        <div>
+          <p className="eyebrow">Personel devam sistemi</p>
+          <h1>{title}</h1>
+        </div>
+        {email && <div className="login-meta">{email}</div>}
+        {onSignOut && (
+          <button className="secondary-action login-action" onClick={onSignOut}>
+            <LogOut size={18} aria-hidden="true" />
+            Çıkış
+          </button>
+        )}
+      </section>
+    </main>
+  );
+}
+
+function AccessDeniedScreen({ email, onSignOut, busy }: { email: string | null; onSignOut: () => void; busy: boolean }) {
+  return (
+    <main className="auth-page screen-only">
+      <section className="login-panel auth-status-panel">
+        <span className="login-icon">
+          <ShieldCheck size={24} aria-hidden="true" />
+        </span>
+        <div>
+          <p className="eyebrow">Yetki gerekli</p>
+          <h1>Bu hesap yönetici değil</h1>
+        </div>
+        <p className="auth-copy">{email} hesabı için Firestore `admins` yetkisi bulunamadı.</p>
+        <button className="secondary-action login-action" onClick={onSignOut} disabled={busy}>
+          <LogOut size={18} aria-hidden="true" />
+          Çıkış
+        </button>
+      </section>
+    </main>
   );
 }
 

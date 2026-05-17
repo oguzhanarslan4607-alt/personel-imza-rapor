@@ -98,6 +98,120 @@ button {
   border-color: #e9c46a;
 }
 
+.user-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 38px;
+  max-width: 280px;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid #c8d7e6;
+  border-radius: 8px;
+  color: #27405f;
+  background: #f8fbff;
+  font-weight: 800;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-page {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(237, 243, 248, 0.96)),
+    #edf3f8;
+}
+
+.login-panel {
+  display: grid;
+  width: min(100%, 430px);
+  gap: 16px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  border-top: 5px solid var(--teal);
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 20px 45px rgba(23, 32, 42, 0.14);
+}
+
+.login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.login-brand h1,
+.auth-status-panel h1 {
+  margin: 0;
+  font-size: 23px;
+  line-height: 1.2;
+}
+
+.login-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--teal);
+}
+
+.input-with-icon {
+  position: relative;
+}
+
+.input-with-icon svg {
+  position: absolute;
+  left: 11px;
+  top: 50%;
+  color: var(--muted);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.input-with-icon input {
+  padding-left: 38px;
+}
+
+.login-action {
+  width: 100%;
+}
+
+.login-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.form-error {
+  padding: 10px 12px;
+  border: 1px solid #f1a9a4;
+  border-radius: 8px;
+  color: var(--red);
+  background: #fff1f0;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.auth-status-panel {
+  justify-items: start;
+}
+
+.auth-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
 .tabbar {
   display: flex;
   gap: 6px;
