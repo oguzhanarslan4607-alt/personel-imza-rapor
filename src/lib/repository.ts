@@ -143,15 +143,21 @@ function writeLocal<T>(key: string, value: T) {
 }
 
 function sortStaff(staff: StaffMember[]) {
-  return [...staff].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "tr"));
+  return [...staff].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name, "tr", { sensitivity: "base" }) ||
+      a.department.localeCompare(b.department, "tr", { sensitivity: "base" }) ||
+      a.title.localeCompare(b.title, "tr", { sensitivity: "base" }) ||
+      a.order - b.order,
+  );
 }
 
 export async function loadStaff(): Promise<StaffMember[]> {
   if (db) {
     try {
       await waitForSignedIn();
-      const snapshot = await getDocs(query(collection(db, "staff"), orderBy("order", "asc")));
-      return snapshot.docs.map((item) => item.data() as StaffMember);
+      const snapshot = await getDocs(query(collection(db, "staff")));
+      return sortStaff(snapshot.docs.map((item) => item.data() as StaffMember));
     } catch (error) {
       console.warn("Firebase staff read failed.", error);
       return [];

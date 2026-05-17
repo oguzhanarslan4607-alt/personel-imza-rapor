@@ -71,7 +71,13 @@ const emptyDraft: DraftRecord = {
 };
 
 function sortStaff(staff: StaffMember[]) {
-  return [...staff].sort((a, b) => a.order - b.order || a.name.localeCompare(b.name, "tr"));
+  return [...staff].sort(
+    (a, b) =>
+      a.name.localeCompare(b.name, "tr", { sensitivity: "base" }) ||
+      a.department.localeCompare(b.department, "tr", { sensitivity: "base" }) ||
+      a.title.localeCompare(b.title, "tr", { sensitivity: "base" }) ||
+      a.order - b.order,
+  );
 }
 
 function computeStatusFromTime(checkInTime: string, settings: AppSettings): AttendanceStatus {
@@ -133,6 +139,10 @@ function App() {
 
   const activeStaff = useMemo(() => sortStaff(staff.filter((member) => member.active)), [staff]);
   const staffById = useMemo(() => new Map(staff.map((member) => [member.id, member])), [staff]);
+  const staffRankById = useMemo(
+    () => new Map(sortStaff(staff).map((member, index) => [member.id, index])),
+    [staff],
+  );
   const printPages = useMemo(
     () => chunk(activeStaff, Math.max(1, settings.rowsPerPrintSide)),
     [activeStaff, settings.rowsPerPrintSide],
@@ -445,7 +455,7 @@ function App() {
         [...records].sort((a, b) => {
           const dateSort = a.date.localeCompare(b.date);
           if (dateSort !== 0) return dateSort;
-          return (staffById.get(a.staffId)?.order ?? 0) - (staffById.get(b.staffId)?.order ?? 0);
+          return (staffRankById.get(a.staffId) ?? 0) - (staffRankById.get(b.staffId) ?? 0);
         }),
       );
     } catch {
@@ -610,12 +620,12 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {activeStaff.map((member) => {
+                    {activeStaff.map((member, index) => {
                       const draft = drafts[member.id] ?? emptyDraft;
 
                       return (
                         <tr key={member.id}>
-                          <td className="number-cell">{member.order}</td>
+                          <td className="number-cell">{index + 1}</td>
                           <td>
                             <strong>{member.name}</strong>
                             <span>{[member.department, member.title].filter(Boolean).join(" / ")}</span>
@@ -697,6 +707,7 @@ function App() {
                 <SheetPage
                   key={`${index}-${pageStaff.length}`}
                   staff={pageStaff}
+                  startNumber={index * settings.rowsPerPrintSide}
                   pageIndex={index}
                   pageCount={printPages.length}
                   selectedDate={selectedDate}
@@ -841,9 +852,9 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortStaff(staff).map((member) => (
+                    {sortStaff(staff).map((member, index) => (
                       <tr key={member.id} className={!member.active ? "is-muted" : ""}>
-                        <td className="number-cell">{member.order}</td>
+                        <td className="number-cell">{index + 1}</td>
                         <td>
                           <strong>{member.name}</strong>
                           <span>{member.title}</span>
@@ -926,6 +937,7 @@ function App() {
           <SheetPage
             key={`print-${index}-${pageStaff.length}`}
             staff={pageStaff}
+            startNumber={index * settings.rowsPerPrintSide}
             pageIndex={index}
             pageCount={printPages.length}
             selectedDate={selectedDate}
@@ -1078,6 +1090,7 @@ function StatusPill({ status }: { status: AttendanceStatus }) {
 
 function SheetPage({
   staff,
+  startNumber,
   pageIndex,
   pageCount,
   selectedDate,
@@ -1085,6 +1098,7 @@ function SheetPage({
   preview = false,
 }: {
   staff: StaffMember[];
+  startNumber: number;
   pageIndex: number;
   pageCount: number;
   selectedDate: string;
@@ -1119,9 +1133,9 @@ function SheetPage({
           </tr>
         </thead>
         <tbody>
-          {staff.map((member) => (
+          {staff.map((member, index) => (
             <tr key={member.id}>
-              <td>{member.order}</td>
+              <td>{startNumber + index + 1}</td>
               <td>{member.name}</td>
               <td>{member.title}</td>
               <td>{member.department}</td>
