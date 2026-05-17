@@ -22,10 +22,11 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import type { AttendanceRecord, StaffMember } from "../types";
+import type { AttendanceRecord, PrintArchiveRecord, StaffMember } from "../types";
 
 const STAFF_KEY = "personel-imza.staff.v1";
 const ATTENDANCE_KEY = "personel-imza.attendance.v1";
+const PRINT_ARCHIVE_KEY = "personel-imza.printArchive.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -284,4 +285,37 @@ export async function deleteAttendanceRecord(id: string) {
     ATTENDANCE_KEY,
     records.filter((record) => record.id !== id),
   );
+}
+
+export async function loadPrintArchives(): Promise<PrintArchiveRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "printArchives"), orderBy("createdAt", "desc")));
+      return snapshot.docs.map((item) => item.data() as PrintArchiveRecord);
+    } catch (error) {
+      console.warn("Firebase print archive read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<PrintArchiveRecord[]>(PRINT_ARCHIVE_KEY, []).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
+export async function savePrintArchive(record: PrintArchiveRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "printArchives", record.id), {
+      ...record,
+      createdBy: currentUser?.email ?? null,
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<PrintArchiveRecord[]>(PRINT_ARCHIVE_KEY, []);
+  writeLocal(PRINT_ARCHIVE_KEY, [
+    record,
+    ...records.filter((item) => item.id !== record.id),
+  ]);
 }

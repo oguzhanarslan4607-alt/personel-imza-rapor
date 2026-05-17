@@ -19,6 +19,17 @@ export type AttendanceRecord = {
   updatedAt?: string;
 };
 
+export type PrintArchiveRecord = {
+  id: string;
+  date: string;
+  staffCount: number;
+  pageCount: number;
+  rowsPerPrintSide: number;
+  shiftStart: string;
+  createdAt: string;
+  createdBy?: string | null;
+};
+
 export type AppSettings = {
   companyName: string;
   formTitle: string;

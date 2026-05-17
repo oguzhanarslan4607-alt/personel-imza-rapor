@@ -1,7 +1,10 @@
 import {
   BarChart3,
   CalendarCheck,
+  CheckCircle2,
   Database,
+  Edit3,
+  FileSpreadsheet,
   FileDown,
   KeyRound,
   Lock,
@@ -11,11 +14,13 @@ import {
   Printer,
   RefreshCw,
   Save,
+  Search,
   Settings,
   ShieldCheck,
   Trash2,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createSampleStaff } from "./data/sampleStaff";
@@ -28,10 +33,12 @@ import {
   hasAdminAccess,
   loadAttendanceByDate,
   loadAttendanceRange,
+  loadPrintArchives,
   loadStaff,
   makeAttendanceId,
   observeAdminAuth,
   saveAttendanceRecord,
+  savePrintArchive,
   saveStaffMember,
   saveStaffMembers,
   signInAdmin,
@@ -39,7 +46,7 @@ import {
   type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
-import type { AppSettings, AttendanceRecord, AttendanceStatus, StaffMember } from "./types";
+import type { AppSettings, AttendanceRecord, AttendanceStatus, PrintArchiveRecord, StaffMember } from "./types";
 
 type TabKey = "daily" | "print" | "reports" | "staff" | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
@@ -85,6 +92,39 @@ function computeStatusFromTime(checkInTime: string, settings: AppSettings): Atte
   return compareTimes(checkInTime, limit) > 0 ? "late" : "present";
 }
 
+function timeToMinutes(time: string) {
+  const [hour, minute] = time.split(":").map(Number);
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return 0;
+  return hour * 60 + minute;
+}
+
+function getLateMinutes(checkInTime: string, settings: AppSettings) {
+  if (!checkInTime) return 0;
+  return Math.max(0, timeToMinutes(checkInTime) - timeToMinutes(settings.shiftStart));
+}
+
+function getRecordLateMinutes(record: AttendanceRecord, settings: AppSettings) {
+  if (record.status !== "late") return 0;
+  return getLateMinutes(record.checkInTime, settings);
+}
+
+function normalizeText(value: string) {
+  return value.toLocaleLowerCase("tr-TR").normalize("NFKD");
+}
+
+function matchesStaffSearch(member: StaffMember, search: string) {
+  const needle = normalizeText(search.trim());
+  if (!needle) return true;
+
+  return normalizeText(`${member.name} ${member.department} ${member.title}`).includes(needle);
+}
+
+function getDepartments(staff: StaffMember[]) {
+  return Array.from(new Set(staff.map((member) => member.department.trim()).filter(Boolean))).sort((a, b) =>
+    a.localeCompare(b, "tr", { sensitivity: "base" }),
+  );
+}
+
 function chunk<T>(items: T[], size: number) {
   const pages: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -96,6 +136,57 @@ function chunk<T>(items: T[], size: number) {
 function csvEscape(value: string | number) {
   const text = String(value ?? "");
   return `"${text.replace(/"/g, '""')}"`;
+}
+
+function excelEscape(value: string | number) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function downloadExcelFile(filename: string, sections: Array<{ title: string; rows: Array<Array<string | number>> }>) {
+  const html = `
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <style>
+          table { border-collapse: collapse; margin-bottom: 24px; }
+          th, td { border: 1px solid #9aa8b6; padding: 6px 8px; font-family: Arial, sans-serif; font-size: 11pt; }
+          th { background: #e9eef5; font-weight: bold; }
+          h2 { font-family: Arial, sans-serif; }
+        </style>
+      </head>
+      <body>
+        ${sections
+          .map(
+            (section) => `
+              <h2>${excelEscape(section.title)}</h2>
+              <table>
+                ${section.rows
+                  .map(
+                    (row, index) =>
+                      `<tr>${row
+                        .map((cell) => `<${index === 0 ? "th" : "td"}>${excelEscape(cell)}</${index === 0 ? "th" : "td"}>`)
+                        .join("")}</tr>`,
+                  )
+                  .join("")}
+              </table>
+            `,
+          )
+          .join("")}
+      </body>
+    </html>
+  `;
+
+  const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 function getLoginErrorMessage(error: unknown) {
@@ -129,12 +220,19 @@ function App() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [drafts, setDrafts] = useState<Record<string, DraftRecord>>({});
+  const [dailySearch, setDailySearch] = useState("");
+  const [dailyDepartment, setDailyDepartment] = useState("all");
   const [reportStart, setReportStart] = useState(monthStartIso());
   const [reportEnd, setReportEnd] = useState(todayIso());
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
+  const [reportDepartment, setReportDepartment] = useState("all");
   const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "" });
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [staffSearch, setStaffSearch] = useState("");
+  const [staffDepartment, setStaffDepartment] = useState("all");
   const [importText, setImportText] = useState("");
+  const [printArchives, setPrintArchives] = useState<PrintArchiveRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -143,6 +241,25 @@ function App() {
   const staffRankById = useMemo(
     () => new Map(sortStaff(staff).map((member, index) => [member.id, index])),
     [staff],
+  );
+  const departments = useMemo(() => getDepartments(staff), [staff]);
+  const filteredDailyStaff = useMemo(
+    () =>
+      activeStaff.filter(
+        (member) =>
+          matchesStaffSearch(member, dailySearch) &&
+          (dailyDepartment === "all" || member.department === dailyDepartment),
+      ),
+    [activeStaff, dailyDepartment, dailySearch],
+  );
+  const filteredStaff = useMemo(
+    () =>
+      sortStaff(staff).filter(
+        (member) =>
+          matchesStaffSearch(member, staffSearch) &&
+          (staffDepartment === "all" || member.department === staffDepartment),
+      ),
+    [staff, staffDepartment, staffSearch],
   );
   const printPages = useMemo(
     () => chunk(activeStaff, Math.max(1, settings.rowsPerPrintSide)),
@@ -155,18 +272,26 @@ function App() {
       (stats, member) => {
         const draft = drafts[member.id] ?? emptyDraft;
         const status = draft.status || (draft.checkInTime ? computeStatusFromTime(draft.checkInTime, settings) : "");
+        if (status || draft.checkInTime || draft.lateReason.trim()) stats.processed += 1;
         if (status === "present") stats.present += 1;
         if (status === "late") stats.late += 1;
         if (status === "absent") stats.absent += 1;
         if (status === "excused") stats.excused += 1;
         return stats;
       },
-      { present: 0, late: 0, absent: 0, excused: 0 },
+      { processed: 0, present: 0, late: 0, absent: 0, excused: 0 },
     );
   }, [activeStaff, drafts, settings]);
+  const dailyEmptyCount = Math.max(0, activeStaff.length - dailyStats.processed);
 
   const reportStats = useMemo(() => {
-    const filteredRows = reportStaffId === "all" ? reportRows : reportRows.filter((record) => record.staffId === reportStaffId);
+    const filteredRows = reportRows.filter((record) => {
+      const member = staffById.get(record.staffId);
+      return (
+        (reportStaffId === "all" || record.staffId === reportStaffId) &&
+        (reportDepartment === "all" || member?.department === reportDepartment)
+      );
+    });
 
     return filteredRows.reduce(
       (stats, record) => {
@@ -176,11 +301,17 @@ function App() {
       },
       { total: 0, present: 0, late: 0, absent: 0, excused: 0 },
     );
-  }, [reportRows, reportStaffId]);
+  }, [reportDepartment, reportRows, reportStaffId, staffById]);
 
   const filteredReportRows = useMemo(() => {
-    return reportStaffId === "all" ? reportRows : reportRows.filter((record) => record.staffId === reportStaffId);
-  }, [reportRows, reportStaffId]);
+    return reportRows.filter((record) => {
+      const member = staffById.get(record.staffId);
+      return (
+        (reportStaffId === "all" || record.staffId === reportStaffId) &&
+        (reportDepartment === "all" || member?.department === reportDepartment)
+      );
+    });
+  }, [reportDepartment, reportRows, reportStaffId, staffById]);
 
   const reportSummaryRows = useMemo(() => {
     const summary = new Map<
@@ -192,6 +323,7 @@ function App() {
         late: number;
         absent: number;
         excused: number;
+        lateMinutes: number;
       }
     >();
 
@@ -208,17 +340,21 @@ function App() {
           late: 0,
           absent: 0,
           excused: 0,
+          lateMinutes: 0,
         };
 
       current.total += 1;
       current[record.status] += 1;
+      current.lateMinutes += getRecordLateMinutes(record, settings);
       summary.set(record.staffId, current);
     });
 
     return Array.from(summary.values()).sort(
       (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
     );
-  }, [filteredReportRows, staffById, staffRankById]);
+  }, [filteredReportRows, settings, staffById, staffRankById]);
+
+  const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
 
   async function refreshStaff() {
     setBusy(true);
@@ -248,6 +384,15 @@ function App() {
       );
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function refreshPrintArchives() {
+    try {
+      const records = await loadPrintArchives();
+      setPrintArchives(records);
+    } catch {
+      setPrintArchives([]);
     }
   }
 
@@ -296,6 +441,11 @@ function App() {
     void refreshAttendance(selectedDate);
   }, [canUseApp, admin?.uid, selectedDate]);
 
+  useEffect(() => {
+    if (!canUseApp) return;
+    void refreshPrintArchives();
+  }, [canUseApp, admin?.uid]);
+
   function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
     setSettings(next);
@@ -342,6 +492,40 @@ function App() {
 
       return { ...previous, [staffId]: next };
     });
+  }
+
+  async function handleMarkEmptyAbsent() {
+    const emptyMembers = activeStaff.filter((member) => {
+      const draft = drafts[member.id] ?? emptyDraft;
+      return !draft.status && !draft.checkInTime && !draft.lateReason.trim();
+    });
+
+    if (!emptyMembers.length) {
+      setMessage("Boş kayıt bulunamadı.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await Promise.all(
+        emptyMembers.map((member) =>
+          saveAttendanceRecord({
+            id: makeAttendanceId(selectedDate, member.id),
+            staffId: member.id,
+            date: selectedDate,
+            checkInTime: "",
+            status: "absent",
+            lateReason: "Gün sonu otomatik gelmedi",
+          }),
+        ),
+      );
+      setMessage(`${emptyMembers.length} boş kayıt Gelmedi olarak kaydedildi.`);
+      await refreshAttendance(selectedDate);
+    } catch {
+      setMessage("Boş kayıtlar güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function handleSaveDay() {
@@ -412,6 +596,32 @@ function App() {
       await refreshStaff();
     } catch {
       setMessage("Personel eklenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleStartEditStaff(member: StaffMember) {
+    setEditingStaff({ ...member });
+  }
+
+  async function handleUpdateStaff(event: FormEvent) {
+    event.preventDefault();
+    if (!editingStaff || !editingStaff.name.trim()) return;
+
+    setBusy(true);
+    try {
+      await saveStaffMember({
+        ...editingStaff,
+        name: editingStaff.name.trim(),
+        department: editingStaff.department.trim(),
+        title: editingStaff.title.trim(),
+      });
+      setEditingStaff(null);
+      await refreshStaff();
+      setMessage("Personel bilgileri güncellendi.");
+    } catch {
+      setMessage("Personel güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -510,17 +720,43 @@ function App() {
     }
   }
 
+  async function handleArchivePrintSheet() {
+    const archive: PrintArchiveRecord = {
+      id: `${selectedDate}_${Date.now()}`,
+      date: selectedDate,
+      staffCount: activeStaff.length,
+      pageCount: printPages.length,
+      rowsPerPrintSide: settings.rowsPerPrintSide,
+      shiftStart: settings.shiftStart,
+      createdAt: new Date().toISOString(),
+      createdBy: admin?.email ?? null,
+    };
+
+    setBusy(true);
+    try {
+      await savePrintArchive(archive);
+      await refreshPrintArchives();
+      setMessage(`${formatDateTr(selectedDate)} imza föyü arşive eklendi.`);
+    } catch {
+      setMessage("İmza föyü arşivlenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function handleExportCsv() {
     const rows = [
-      ["Tarih", "Personel", "Departman", "Giriş Saati", "Durum", "Açıklama"],
+      ["Tarih", "Personel", "Departman", "Ünvan", "Giriş Saati", "Durum", "Gecikme Dk", "Açıklama"],
       ...filteredReportRows.map((record) => {
         const member = staffById.get(record.staffId);
         return [
           record.date,
           member?.name ?? "",
           member?.department ?? "",
+          member?.title ?? "",
           record.checkInTime,
           statusLabels[record.status],
+          getRecordLateMinutes(record, settings),
           record.lateReason,
         ];
       }),
@@ -535,6 +771,44 @@ function App() {
     link.download = `personel-rapor-${personPart}-${reportStart}-${reportEnd}.csv`;
     link.click();
     URL.revokeObjectURL(url);
+  }
+
+  function handleExportExcel() {
+    const detailRows: Array<Array<string | number>> = [
+      ["Tarih", "Personel", "Departman", "Ünvan", "Giriş Saati", "Durum", "Gecikme Dk", "Açıklama"],
+      ...filteredReportRows.map((record) => {
+        const member = staffById.get(record.staffId);
+        return [
+          record.date,
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          record.checkInTime,
+          statusLabels[record.status],
+          getRecordLateMinutes(record, settings),
+          record.lateReason,
+        ];
+      }),
+    ];
+    const summaryRows: Array<Array<string | number>> = [
+      ["Personel", "Departman", "Ünvan", "Kayıt", "Geldi", "Geç", "Gelmedi", "İzinli", "Toplam Gecikme Dk"],
+      ...reportSummaryRows.map((row) => [
+        row.staff.name,
+        row.staff.department,
+        row.staff.title,
+        row.total,
+        row.present,
+        row.late,
+        row.absent,
+        row.excused,
+        row.lateMinutes,
+      ]),
+    ];
+    const personPart = reportStaffId === "all" ? "tum-personel" : staffById.get(reportStaffId)?.name ?? "personel";
+    downloadExcelFile(`personel-rapor-${personPart}-${reportStart}-${reportEnd}.xls`, [
+      { title: "Aylık Özet", rows: summaryRows },
+      { title: "Detay Kayıtları", rows: detailRows },
+    ]);
   }
 
   if (!authChecked) {
@@ -638,14 +912,38 @@ function App() {
                   onChange={(event) => updateSettings({ lateAfterMinutes: Number(event.target.value) })}
                 />
               </label>
+              <label className="wide-filter">
+                Arama
+                <div className="input-with-icon compact-input">
+                  <Search size={17} aria-hidden="true" />
+                  <input value={dailySearch} onChange={(event) => setDailySearch(event.target.value)} placeholder="Personel ara" />
+                </div>
+              </label>
+              <label>
+                Departman
+                <select value={dailyDepartment} onChange={(event) => setDailyDepartment(event.target.value)}>
+                  <option value="all">Tümü</option>
+                  {departments.map((department) => (
+                    <option key={department} value={department}>
+                      {department}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className="primary-action" onClick={() => void handleSaveDay()} disabled={busy}>
                 <Save size={18} aria-hidden="true" />
                 Kaydet
+              </button>
+              <button className="secondary-action" onClick={() => void handleMarkEmptyAbsent()} disabled={busy || !dailyEmptyCount}>
+                <CheckCircle2 size={18} aria-hidden="true" />
+                Boşları Gelmedi Yap
               </button>
             </section>
 
             <section className="metric-row" aria-label="Günlük özet">
               <Metric label="Aktif Personel" value={activeStaff.length} />
+              <Metric label="İşlenen" value={dailyStats.processed} tone="blue" />
+              <Metric label="Eksik" value={dailyEmptyCount} tone="amber" />
               <Metric label="Geldi" value={dailyStats.present} tone="green" />
               <Metric label="Geç" value={dailyStats.late} tone="amber" />
               <Metric label="Gelmedi" value={dailyStats.absent} tone="red" />
@@ -660,14 +958,16 @@ function App() {
                       <th>No</th>
                       <th>Personel</th>
                       <th>Giriş</th>
+                      <th>Gecikme</th>
                       <th>Durum</th>
                       <th>Açıklama</th>
                       <th aria-label="İşlem" />
                     </tr>
                   </thead>
                   <tbody>
-                    {activeStaff.map((member, index) => {
+                    {filteredDailyStaff.map((member, index) => {
                       const draft = drafts[member.id] ?? emptyDraft;
+                      const lateMinutes = getLateMinutes(draft.checkInTime, settings);
 
                       return (
                         <tr key={member.id}>
@@ -683,6 +983,7 @@ function App() {
                               onChange={(event) => updateDraft(member.id, { checkInTime: event.target.value })}
                             />
                           </td>
+                          <td className="number-cell">{lateMinutes > 0 ? `${lateMinutes} dk` : "-"}</td>
                           <td>
                             <select
                               value={draft.status}
@@ -746,6 +1047,43 @@ function App() {
                 <Printer size={18} aria-hidden="true" />
                 Yazdır
               </button>
+              <button className="secondary-action" onClick={() => void handleArchivePrintSheet()} disabled={busy}>
+                <Save size={18} aria-hidden="true" />
+                Arşivle
+              </button>
+            </section>
+
+            <section className="data-panel archive-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>İmza Föyü Arşivi</h2>
+                  <span>Son basım/arşiv kayıtları</span>
+                </div>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table archive-table">
+                  <thead>
+                    <tr>
+                      <th>Tarih</th>
+                      <th>Personel</th>
+                      <th>Sayfa</th>
+                      <th>Mesai</th>
+                      <th>Arşiv Zamanı</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {printArchives.slice(0, 8).map((archive) => (
+                      <tr key={archive.id}>
+                        <td>{archive.date}</td>
+                        <td>{archive.staffCount}</td>
+                        <td>{archive.pageCount}</td>
+                        <td>{archive.shiftStart}</td>
+                        <td>{new Date(archive.createdAt).toLocaleString("tr-TR")}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </section>
 
             <section className="sheet-preview">
@@ -787,9 +1125,24 @@ function App() {
                   ))}
                 </select>
               </label>
+              <label>
+                Departman
+                <select value={reportDepartment} onChange={(event) => setReportDepartment(event.target.value)}>
+                  <option value="all">Tümü</option>
+                  {departments.map((department) => (
+                    <option key={department} value={department}>
+                      {department}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <button className="secondary-action" onClick={() => void handleLoadReport()} disabled={busy}>
                 <BarChart3 size={18} aria-hidden="true" />
                 Getir
+              </button>
+              <button className="secondary-action" onClick={handleExportExcel} disabled={!filteredReportRows.length}>
+                <FileSpreadsheet size={18} aria-hidden="true" />
+                Excel
               </button>
               <button className="primary-action" onClick={handleExportCsv} disabled={!filteredReportRows.length}>
                 <FileDown size={18} aria-hidden="true" />
@@ -804,6 +1157,19 @@ function App() {
               <Metric label="Gelmedi" value={reportStats.absent} tone="red" />
               <Metric label="İzinli" value={reportStats.excused} tone="blue" />
             </section>
+
+            {selectedPersonSummary && (
+              <section className="person-card">
+                <div>
+                  <span>Kişi Karnesi</span>
+                  <strong>{selectedPersonSummary.staff.name}</strong>
+                  <small>{[selectedPersonSummary.staff.department, selectedPersonSummary.staff.title].filter(Boolean).join(" / ")}</small>
+                </div>
+                <Metric label="Toplam Gecikme" value={selectedPersonSummary.lateMinutes} tone="amber" />
+                <Metric label="Geç Gün" value={selectedPersonSummary.late} tone="amber" />
+                <Metric label="Gelmedi" value={selectedPersonSummary.absent} tone="red" />
+              </section>
+            )}
 
             <section className="data-panel report-summary-panel">
               <div className="panel-heading">
@@ -824,6 +1190,7 @@ function App() {
                       <th>Geç</th>
                       <th>Gelmedi</th>
                       <th>İzinli</th>
+                      <th>Gecikme Dk</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -840,6 +1207,7 @@ function App() {
                         <td>{row.late}</td>
                         <td>{row.absent}</td>
                         <td>{row.excused}</td>
+                        <td>{row.lateMinutes}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -856,6 +1224,7 @@ function App() {
                       <th>Personel</th>
                       <th>Departman</th>
                       <th>Giriş</th>
+                      <th>Gecikme</th>
                       <th>Durum</th>
                       <th>Açıklama</th>
                     </tr>
@@ -869,6 +1238,7 @@ function App() {
                           <td>{member?.name ?? ""}</td>
                           <td>{member?.department ?? ""}</td>
                           <td>{record.checkInTime}</td>
+                          <td>{getRecordLateMinutes(record, settings) || "-"}</td>
                           <td>
                             <StatusPill status={record.status} />
                           </td>
@@ -887,6 +1257,12 @@ function App() {
           <main className="workspace two-column">
             <section className="data-panel form-panel">
               <form onSubmit={handleAddStaff} className="staff-form">
+                <div className="panel-heading compact-heading">
+                  <div>
+                    <h2>Yeni Personel</h2>
+                    <span>Liste alfabetik sıralanır</span>
+                  </div>
+                </div>
                 <label>
                   Ad Soyad
                   <input
@@ -915,6 +1291,49 @@ function App() {
                 </button>
               </form>
 
+              {editingStaff && (
+                <form onSubmit={handleUpdateStaff} className="staff-form edit-form">
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Personel Düzenle</h2>
+                      <span>{editingStaff.name}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Ad Soyad
+                    <input
+                      value={editingStaff.name}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, name: event.target.value } : previous)}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Departman
+                    <input
+                      value={editingStaff.department}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, department: event.target.value } : previous)}
+                    />
+                  </label>
+                  <label>
+                    Ünvan
+                    <input
+                      value={editingStaff.title}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, title: event.target.value } : previous)}
+                    />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Güncelle
+                    </button>
+                    <button className="secondary-action" type="button" onClick={() => setEditingStaff(null)}>
+                      <X size={18} aria-hidden="true" />
+                      Vazgeç
+                    </button>
+                  </div>
+                </form>
+              )}
+
               <div className="import-box">
                 <label>
                   Toplu Personel
@@ -939,6 +1358,26 @@ function App() {
             </section>
 
             <section className="data-panel">
+              <div className="list-tools">
+                <label className="wide-filter">
+                  Arama
+                  <div className="input-with-icon compact-input">
+                    <Search size={17} aria-hidden="true" />
+                    <input value={staffSearch} onChange={(event) => setStaffSearch(event.target.value)} placeholder="Personel ara" />
+                  </div>
+                </label>
+                <label>
+                  Departman
+                  <select value={staffDepartment} onChange={(event) => setStaffDepartment(event.target.value)}>
+                    <option value="all">Tümü</option>
+                    {departments.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
@@ -951,7 +1390,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {sortStaff(staff).map((member, index) => (
+                    {filteredStaff.map((member, index) => (
                       <tr key={member.id} className={!member.active ? "is-muted" : ""}>
                         <td className="number-cell">{index + 1}</td>
                         <td>
@@ -960,9 +1399,14 @@ function App() {
                         </td>
                         <td>{member.department}</td>
                         <td>
-                          <button className="status-toggle" onClick={() => void handleToggleStaff(member)}>
-                            {member.active ? "Aktif" : "Pasif"}
-                          </button>
+                          <div className="row-actions">
+                            <button className="icon-button" onClick={() => handleStartEditStaff(member)} title="Düzenle" aria-label={`${member.name} düzenle`}>
+                              <Edit3 size={17} />
+                            </button>
+                            <button className="status-toggle" onClick={() => void handleToggleStaff(member)}>
+                              {member.active ? "Aktif" : "Pasif"}
+                            </button>
+                          </div>
                         </td>
                         <td>
                           <button

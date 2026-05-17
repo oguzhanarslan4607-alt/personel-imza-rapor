@@ -19,5 +19,9 @@ service cloud.firestore {
     match /attendance/{attendanceId} {
       allow read, write: if isAdmin();
     }
+
+    match /printArchives/{archiveId} {
+      allow read, write: if isAdmin();
+    }
   }
 }
