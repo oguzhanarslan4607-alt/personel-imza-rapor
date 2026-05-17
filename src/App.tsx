@@ -1139,7 +1139,7 @@ function SheetPage({
               <td>{member.name}</td>
               <td>{member.title}</td>
               <td>{member.department}</td>
-              <td />
+              <td>{settings.shiftStart}</td>
               <td />
               <td />
             </tr>

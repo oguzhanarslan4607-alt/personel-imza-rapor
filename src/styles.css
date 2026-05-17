@@ -622,7 +622,7 @@ button:disabled {
 
 .signature-table th,
 .signature-table td {
-  height: 5.85mm;
+  height: 6.35mm;
   border: 1px solid #111827;
   padding: 1mm 1.2mm;
   text-align: left;
@@ -761,6 +761,6 @@ button:disabled {
 
   .signature-table th,
   .signature-table td {
-    height: 5.85mm;
+    height: 6.35mm;
   }
 }
