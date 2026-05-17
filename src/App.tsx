@@ -76,6 +76,7 @@ const emptyDraft: DraftRecord = {
   status: "",
   lateReason: "",
 };
+const EXTRA_SIGNATURE_ROWS = 3;
 
 function sortStaff(staff: StaffMember[]) {
   return [...staff].sort(
@@ -1687,6 +1688,18 @@ function SheetPage({
               <td />
             </tr>
           ))}
+          {pageIndex === pageCount - 1 &&
+            Array.from({ length: EXTRA_SIGNATURE_ROWS }, (_, index) => (
+              <tr key={`extra-${index}`} className="extra-signature-row">
+                <td>Ek-{index + 1}</td>
+                <td />
+                <td />
+                <td />
+                <td>{settings.shiftStart}</td>
+                <td />
+                <td />
+              </tr>
+            ))}
         </tbody>
       </table>
 

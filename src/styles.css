@@ -777,6 +777,10 @@ button:disabled {
   width: 30mm;
 }
 
+.extra-signature-row td {
+  background: #fbfdff;
+}
+
 .sheet-footer {
   margin-top: 3mm;
   color: #374151;
