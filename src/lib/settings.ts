@@ -8,6 +8,7 @@ export const defaultSettings: AppSettings = {
   shiftStart: "08:30",
   lateAfterMinutes: 0,
   rowsPerPrintSide: 43,
+  theme: "light",
 };
 
 export function loadSettings(): AppSettings {

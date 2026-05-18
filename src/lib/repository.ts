@@ -22,13 +22,21 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import type { AttendanceRecord, AuditLogRecord, DayLockRecord, PrintArchiveRecord, StaffMember } from "../types";
+import type {
+  AttendanceRecord,
+  AuditLogRecord,
+  DayLockRecord,
+  DeletedAttendanceRecord,
+  PrintArchiveRecord,
+  StaffMember,
+} from "../types";
 
 const STAFF_KEY = "personel-imza.staff.v1";
 const ATTENDANCE_KEY = "personel-imza.attendance.v1";
 const PRINT_ARCHIVE_KEY = "personel-imza.printArchive.v1";
 const DAY_LOCK_KEY = "personel-imza.dayLocks.v1";
 const AUDIT_LOG_KEY = "personel-imza.auditLogs.v1";
+const DELETED_ATTENDANCE_KEY = "personel-imza.deletedAttendance.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -285,6 +293,55 @@ export async function deleteAttendanceRecord(id: string) {
   const records = readLocal<AttendanceRecord[]>(ATTENDANCE_KEY, []);
   writeLocal(
     ATTENDANCE_KEY,
+    records.filter((record) => record.id !== id),
+  );
+}
+
+export async function loadDeletedAttendance(limit = 80): Promise<DeletedAttendanceRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "deletedAttendance"), orderBy("deletedAt", "desc")));
+      return snapshot.docs.slice(0, limit).map((item) => item.data() as DeletedAttendanceRecord);
+    } catch (error) {
+      console.warn("Firebase deleted attendance read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<DeletedAttendanceRecord[]>(DELETED_ATTENDANCE_KEY, [])
+    .sort((a, b) => b.deletedAt.localeCompare(a.deletedAt))
+    .slice(0, limit);
+}
+
+export async function saveDeletedAttendance(record: DeletedAttendanceRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "deletedAttendance", record.id), {
+      ...record,
+      deletedBy: currentUser?.email ?? record.deletedBy ?? null,
+      serverDeletedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<DeletedAttendanceRecord[]>(DELETED_ATTENDANCE_KEY, []);
+  writeLocal(DELETED_ATTENDANCE_KEY, [
+    record,
+    ...records.filter((item) => item.id !== record.id),
+  ].slice(0, 250));
+}
+
+export async function deleteDeletedAttendance(id: string) {
+  if (db) {
+    await waitForSignedIn();
+    await deleteDoc(doc(db, "deletedAttendance", id));
+    return;
+  }
+
+  const records = readLocal<DeletedAttendanceRecord[]>(DELETED_ATTENDANCE_KEY, []);
+  writeLocal(
+    DELETED_ATTENDANCE_KEY,
     records.filter((record) => record.id !== id),
   );
 }

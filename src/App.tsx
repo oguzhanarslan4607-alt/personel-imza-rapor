@@ -1,10 +1,11 @@
 import {
   Activity,
+  ArchiveRestore,
   BarChart3,
   CalendarCheck,
   CalendarDays,
   CheckCircle2,
-  Clock3,
+  CheckSquare,
   Database,
   Edit3,
   Eye,
@@ -18,6 +19,7 @@ import {
   Lock,
   LogOut,
   Mail,
+  Moon,
   PieChart,
   Plus,
   Printer,
@@ -26,10 +28,12 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Sun,
   TriangleAlert,
   Trash2,
   UnlockKeyhole,
   Upload,
+  UserRound,
   Users,
   X,
 } from "lucide-react";
@@ -37,6 +41,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createSampleStaff } from "./data/sampleStaff";
 import { addMinutesToTime, compareTimes, formatDateTr, monthStartIso, todayIso, toLocalIsoDate } from "./lib/date";
 import {
+  deleteDeletedAttendance,
   deleteAttendanceRecord,
   deleteStaffMember,
   firebaseConfigured,
@@ -46,6 +51,7 @@ import {
   loadAttendanceByDate,
   loadAttendanceRange,
   loadDayLock,
+  loadDeletedAttendance,
   loadPrintArchives,
   loadStaff,
   makeAttendanceId,
@@ -53,6 +59,7 @@ import {
   saveAuditLog,
   saveAttendanceRecord,
   saveDayLock,
+  saveDeletedAttendance,
   savePrintArchive,
   saveStaffMember,
   saveStaffMembers,
@@ -67,11 +74,12 @@ import type {
   AttendanceStatus,
   AuditLogRecord,
   DayLockRecord,
+  DeletedAttendanceRecord,
   PrintArchiveRecord,
   StaffMember,
 } from "./types";
 
-type TabKey = "daily" | "print" | "reports" | "staff" | "settings";
+type TabKey = "daily" | "print" | "reports" | "profiles" | "bulk" | "staff" | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
 type DraftRecord = {
   checkInTime: string;
@@ -102,6 +110,8 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "daily", label: "Günlük Kayıt", icon: CalendarCheck },
   { key: "print", label: "İmza Föyü", icon: Printer },
   { key: "reports", label: "Raporlar", icon: BarChart3 },
+  { key: "profiles", label: "Profil", icon: UserRound },
+  { key: "bulk", label: "Toplu İşlem", icon: CheckSquare },
   { key: "staff", label: "Personel", icon: Users },
   { key: "settings", label: "Ayarlar", icon: Settings },
 ];
@@ -317,6 +327,14 @@ function App() {
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
+  const [profileStaffId, setProfileStaffId] = useState("");
+  const [bulkSearch, setBulkSearch] = useState("");
+  const [bulkDepartment, setBulkDepartment] = useState("all");
+  const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
+  const [bulkStatus, setBulkStatus] = useState<AttendanceStatus>("absent");
+  const [bulkCheckInTime, setBulkCheckInTime] = useState(settings.shiftStart);
+  const [bulkReason, setBulkReason] = useState("Toplu işlem");
+  const [bulkTargetDepartment, setBulkTargetDepartment] = useState("");
   const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
@@ -325,6 +343,7 @@ function App() {
   const [importText, setImportText] = useState("");
   const [printArchives, setPrintArchives] = useState<PrintArchiveRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
+  const [deletedAttendance, setDeletedAttendance] = useState<DeletedAttendanceRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -352,6 +371,15 @@ function App() {
           (staffDepartment === "all" || member.department === staffDepartment),
       ),
     [staff, staffDepartment, staffSearch],
+  );
+  const bulkVisibleStaff = useMemo(
+    () =>
+      sortStaff(staff).filter(
+        (member) =>
+          matchesStaffSearch(member, bulkSearch) &&
+          (bulkDepartment === "all" || member.department === bulkDepartment),
+      ),
+    [bulkDepartment, bulkSearch, staff],
   );
   const printPages = useMemo(
     () => chunk(activeStaff, Math.max(1, settings.rowsPerPrintSide)),
@@ -440,6 +468,26 @@ function App() {
 
   const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
   const warningRows = reportSummaryRows.filter((row) => row.absent > 0);
+  const profileStaff = (profileStaffId ? staffById.get(profileStaffId) : activeStaff[0]) ?? null;
+  const profileRows = useMemo(
+    () =>
+      profileStaff
+        ? reportRows
+            .filter((record) => record.staffId === profileStaff.id)
+            .sort((a, b) => b.date.localeCompare(a.date))
+        : [],
+    [profileStaff, reportRows],
+  );
+  const profileStats = useMemo(
+    () =>
+      profileRows.reduce((current, record) => {
+        current.total += 1;
+        current[record.status] += 1;
+        current.lateMinutes += getRecordLateMinutes(record, settings);
+        return current;
+      }, createEmptyCounts()),
+    [profileRows, settings],
+  );
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
 
@@ -556,6 +604,14 @@ function App() {
     }
   }
 
+  async function refreshDeletedAttendance() {
+    try {
+      setDeletedAttendance(await loadDeletedAttendance());
+    } catch {
+      setDeletedAttendance([]);
+    }
+  }
+
   useEffect(() => {
     if (!firebaseConfigured) return;
 
@@ -593,9 +649,14 @@ function App() {
           setReportRows([]);
           setDayLock(null);
           setAuditLogs([]);
+          setDeletedAttendance([]);
         });
     });
   }, []);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = settings.theme;
+  }, [settings.theme]);
 
   useEffect(() => {
     if (!canUseApp) return;
@@ -612,7 +673,18 @@ function App() {
     if (!canUseApp) return;
     void refreshPrintArchives();
     void refreshAuditLogs();
+    void refreshDeletedAttendance();
   }, [canUseApp, admin?.uid]);
+
+  useEffect(() => {
+    if ((!profileStaffId || !staffById.has(profileStaffId)) && activeStaff.length) {
+      setProfileStaffId(activeStaff[0].id);
+    }
+  }, [activeStaff, profileStaffId, staffById]);
+
+  useEffect(() => {
+    setBulkSelectedIds((previous) => previous.filter((id) => staffById.has(id)));
+  }, [staffById]);
 
   function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
@@ -759,12 +831,53 @@ function App() {
 
     setBusy(true);
     try {
+      const draft = drafts[staffId] ?? emptyDraft;
+      const status = getDraftStatus(draft, settings);
+      const staffName = staffById.get(staffId)?.name ?? staffId;
+
+      if (status || draft.checkInTime || draft.lateReason.trim()) {
+        const record: AttendanceRecord = {
+          id: makeAttendanceId(selectedDate, staffId),
+          staffId,
+          date: selectedDate,
+          checkInTime: draft.checkInTime,
+          status: status || "late",
+          lateReason: draft.lateReason.trim(),
+        };
+        await saveDeletedAttendance({
+          id: `${record.id}_${Date.now()}`,
+          record,
+          staffName,
+          deletedAt: new Date().toISOString(),
+          deletedBy: admin?.email ?? null,
+        });
+      }
+
       await deleteAttendanceRecord(makeAttendanceId(selectedDate, staffId));
-      await saveAuditLog("Günlük kayıt temizlendi", `${selectedDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog("Günlük kayıt temizlendi", `${selectedDate} - ${staffName}`);
       setDrafts((previous) => ({ ...previous, [staffId]: emptyDraft }));
       await refreshAuditLogs();
+      await refreshDeletedAttendance();
+      setMessage("Kayıt temizlendi. Ayarlar > Silinen Kayıtlar bölümünden geri yükleyebilirsiniz.");
     } catch {
       setMessage("Kayıt temizlenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleRestoreDeletedAttendance(record: DeletedAttendanceRecord) {
+    setBusy(true);
+    try {
+      await saveAttendanceRecord(record.record);
+      await deleteDeletedAttendance(record.id);
+      await saveAuditLog("Silinen kayıt geri yüklendi", `${record.record.date} - ${record.staffName}`);
+      await refreshDeletedAttendance();
+      await refreshAuditLogs();
+      if (record.record.date === selectedDate) await refreshAttendance(selectedDate);
+      setMessage(`${record.staffName} kaydı geri yüklendi.`);
+    } catch {
+      setMessage("Silinen kayıt geri yüklenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -937,6 +1050,109 @@ function App() {
       await refreshAuditLogs();
     } catch {
       setMessage("Personel silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function toggleBulkStaff(staffId: string) {
+    setBulkSelectedIds((previous) =>
+      previous.includes(staffId) ? previous.filter((id) => id !== staffId) : [...previous, staffId],
+    );
+  }
+
+  function toggleBulkVisibleStaff() {
+    const visibleIds = bulkVisibleStaff.map((member) => member.id);
+    const allSelected = visibleIds.length > 0 && visibleIds.every((id) => bulkSelectedIds.includes(id));
+
+    setBulkSelectedIds((previous) => {
+      if (allSelected) return previous.filter((id) => !visibleIds.includes(id));
+      return Array.from(new Set([...previous, ...visibleIds]));
+    });
+  }
+
+  async function handleBulkAttendance() {
+    const selectedMembers = bulkSelectedIds.map((id) => staffById.get(id)).filter((member): member is StaffMember => Boolean(member));
+
+    if (!selectedMembers.length) {
+      setMessage("Toplu işlem için personel seçin.");
+      return;
+    }
+
+    if (selectedDayLocked) {
+      setMessage("Bu gün kilitli. Toplu işlem için kilidi açın.");
+      return;
+    }
+
+    if (selectedDateIsSunday && bulkStatus === "absent") {
+      setMessage("Pazar günü resmi tatil. Toplu Gelmedi işlemi yapılmadı.");
+      return;
+    }
+
+    const checkInTime = bulkStatus === "present" || bulkStatus === "late" ? bulkCheckInTime || settings.shiftStart : "";
+    const records = selectedMembers.map((member) => ({
+      id: makeAttendanceId(selectedDate, member.id),
+      staffId: member.id,
+      date: selectedDate,
+      checkInTime,
+      status: bulkStatus,
+      lateReason: bulkReason.trim(),
+    } satisfies AttendanceRecord));
+
+    setBusy(true);
+    try {
+      await Promise.all(records.map((record) => saveAttendanceRecord(record)));
+      await saveAuditLog("Toplu günlük işlem", `${selectedDate} - ${records.length} kayıt - ${statusLabels[bulkStatus]}`);
+      await refreshAttendance(selectedDate);
+      await refreshAuditLogs();
+      setMessage(`${records.length} personel için ${statusLabels[bulkStatus]} kaydı işlendi.`);
+    } catch {
+      setMessage("Toplu günlük işlem kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleBulkDepartmentUpdate() {
+    const nextDepartment = bulkTargetDepartment.trim();
+    const selectedMembers = bulkSelectedIds.map((id) => staffById.get(id)).filter((member): member is StaffMember => Boolean(member));
+
+    if (!selectedMembers.length || !nextDepartment) {
+      setMessage("Departman değiştirmek için personel ve yeni departman seçin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveStaffMembers(selectedMembers.map((member) => ({ ...member, department: nextDepartment })));
+      await saveAuditLog("Toplu departman güncellendi", `${selectedMembers.length} personel - ${nextDepartment}`);
+      await refreshStaff();
+      await refreshAuditLogs();
+      setMessage(`${selectedMembers.length} personelin departmanı güncellendi.`);
+    } catch {
+      setMessage("Toplu departman işlemi yapılamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleBulkActiveUpdate(active: boolean) {
+    const selectedMembers = bulkSelectedIds.map((id) => staffById.get(id)).filter((member): member is StaffMember => Boolean(member));
+
+    if (!selectedMembers.length) {
+      setMessage("Durum değiştirmek için personel seçin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveStaffMembers(selectedMembers.map((member) => ({ ...member, active })));
+      await saveAuditLog(active ? "Toplu aktife alındı" : "Toplu pasife alındı", `${selectedMembers.length} personel`);
+      await refreshStaff();
+      await refreshAuditLogs();
+      setMessage(`${selectedMembers.length} personel ${active ? "aktife alındı" : "pasife alındı"}.`);
+    } catch {
+      setMessage("Toplu personel durumu güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -1157,6 +1373,14 @@ function App() {
                   </button>
                 </>
               )}
+              <button
+                className="icon-button"
+                onClick={() => updateSettings({ theme: settings.theme === "dark" ? "light" : "dark" })}
+                title={settings.theme === "dark" ? "Açık tema" : "Koyu tema"}
+                aria-label={settings.theme === "dark" ? "Açık temaya geç" : "Koyu temaya geç"}
+              >
+                {settings.theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
+              </button>
               <button className="icon-button" onClick={() => void refreshStaff()} title="Yenile" aria-label="Yenile">
                 <RefreshCw size={18} />
               </button>
@@ -1565,7 +1789,7 @@ function App() {
                   </thead>
                   <tbody>
                     {reportSummaryRows.map((row) => (
-                      <tr key={row.staff.id} className={row.late >= 3 ? "row-status-late" : ""}>
+                      <tr key={row.staff.id} className={row.absent > 0 ? "row-status-absent" : row.late >= 3 ? "row-status-late" : ""}>
                         <td className="number-cell">{(staffRankById.get(row.staff.id) ?? 0) + 1}</td>
                         <td>
                           <button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}>
@@ -1632,6 +1856,228 @@ function App() {
                         </tr>
                       );
                     })}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </main>
+        )}
+
+        {activeTab === "profiles" && (
+          <main className="workspace">
+            <section className="toolbar-band">
+              <label className="wide-filter">
+                Personel
+                <select value={profileStaff?.id ?? ""} onChange={(event) => setProfileStaffId(event.target.value)}>
+                  {activeStaff.map((member, index) => (
+                    <option key={member.id} value={member.id}>
+                      {index + 1}. {member.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                Başlangıç
+                <input type="date" value={reportStart} onChange={(event) => setReportStart(event.target.value)} />
+              </label>
+              <label>
+                Bitiş
+                <input type="date" value={reportEnd} onChange={(event) => setReportEnd(event.target.value)} />
+              </label>
+              <button className="secondary-action" onClick={() => void handleLoadReport()} disabled={busy}>
+                <BarChart3 size={18} aria-hidden="true" />
+                Getir
+              </button>
+              <button className="secondary-action" onClick={() => void handleLoadMonthlyReport()} disabled={busy}>
+                <CalendarDays size={18} aria-hidden="true" />
+                Bu Ay
+              </button>
+            </section>
+
+            {profileStaff && (
+              <>
+                <section className="profile-hero">
+                  <div>
+                    <span className="section-kicker">
+                      <UserRound size={17} aria-hidden="true" />
+                      Personel profili
+                    </span>
+                    <h2>{profileStaff.name}</h2>
+                    <p>{[profileStaff.department, profileStaff.title].filter(Boolean).join(" / ") || "Departman ve ünvan bilgisi yok"}</p>
+                  </div>
+                  <div className="profile-dates">
+                    <span>İşe giriş: <strong>{profileStaff.startDate || "-"}</strong></span>
+                    <span>İşten çıkış: <strong>{profileStaff.endDate || "-"}</strong></span>
+                    <span>Durum: <strong>{profileStaff.active ? "Aktif" : "Pasif"}</strong></span>
+                  </div>
+                </section>
+
+                <section className="metric-row" aria-label="Personel profil özeti">
+                  <Metric label="Kayıt" value={profileStats.total} />
+                  <Metric label="Geldi" value={profileStats.present} tone="green" />
+                  <Metric label="Geç" value={profileStats.late} tone="amber" />
+                  <Metric label="Gelmedi" value={profileStats.absent} tone="red" />
+                  <Metric label="İzinli" value={profileStats.excused} tone="blue" />
+                  <Metric label="Gecikme Dk" value={profileStats.lateMinutes} tone="amber" />
+                </section>
+
+                <section className="data-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Personel Geçmişi</h2>
+                      <span>{reportStart} - {reportEnd}</span>
+                    </div>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Tarih</th>
+                          <th>Giriş</th>
+                          <th>Gecikme</th>
+                          <th>Durum</th>
+                          <th>Açıklama</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profileRows.map((record) => (
+                          <tr key={record.id} className={getStatusRowClass(record.status)}>
+                            <td>{record.date}</td>
+                            <td>{record.checkInTime || "-"}</td>
+                            <td>
+                              <span className={`late-badge late-${getLateTone(getRecordLateMinutes(record, settings))}`}>
+                                {getRecordLateMinutes(record, settings) || "-"}
+                              </span>
+                            </td>
+                            <td><StatusPill status={record.status} /></td>
+                            <td>{record.lateReason}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!profileRows.length && <div className="empty-state">Bu tarih aralığında profil kaydı yok. Getir veya Bu Ay butonunu kullanın.</div>}
+                </section>
+              </>
+            )}
+          </main>
+        )}
+
+        {activeTab === "bulk" && (
+          <main className="workspace two-column">
+            <section className="data-panel form-panel">
+              <div className="panel-heading compact-heading">
+                <div>
+                  <h2>Toplu İşlem</h2>
+                  <span>{bulkSelectedIds.length} personel seçili</span>
+                </div>
+              </div>
+
+              <label>
+                Tarih
+                <input type="date" value={selectedDate} onChange={(event) => setSelectedDate(event.target.value)} />
+              </label>
+              <label>
+                Durum
+                <select value={bulkStatus} onChange={(event) => setBulkStatus(event.target.value as AttendanceStatus)}>
+                  <option value="absent">Gelmedi</option>
+                  <option value="excused">İzinli</option>
+                  <option value="present">Geldi</option>
+                  <option value="late">Geç</option>
+                </select>
+              </label>
+              {(bulkStatus === "present" || bulkStatus === "late") && (
+                <label>
+                  Giriş Saati
+                  <input type="time" value={bulkCheckInTime} onChange={(event) => setBulkCheckInTime(event.target.value)} />
+                </label>
+              )}
+              <label>
+                Açıklama
+                <input value={bulkReason} onChange={(event) => setBulkReason(event.target.value)} placeholder="Toplu işlem açıklaması" />
+              </label>
+              <button className="primary-action" onClick={() => void handleBulkAttendance()} disabled={busy || !bulkSelectedIds.length || selectedDayLocked}>
+                <Save size={18} aria-hidden="true" />
+                Günlük Durum Ata
+              </button>
+
+              <div className="bulk-divider" />
+
+              <label>
+                Yeni Departman
+                <input value={bulkTargetDepartment} onChange={(event) => setBulkTargetDepartment(event.target.value)} placeholder="Departman adı" />
+              </label>
+              <button className="secondary-action" onClick={() => void handleBulkDepartmentUpdate()} disabled={busy || !bulkSelectedIds.length}>
+                Departmanı Değiştir
+              </button>
+              <div className="button-row">
+                <button className="secondary-action" onClick={() => void handleBulkActiveUpdate(false)} disabled={busy || !bulkSelectedIds.length}>
+                  Pasife Al
+                </button>
+                <button className="secondary-action" onClick={() => void handleBulkActiveUpdate(true)} disabled={busy || !bulkSelectedIds.length}>
+                  Aktife Al
+                </button>
+              </div>
+            </section>
+
+            <section className="data-panel">
+              <div className="list-tools">
+                <label className="wide-filter">
+                  Arama
+                  <div className="input-with-icon compact-input">
+                    <Search size={17} aria-hidden="true" />
+                    <input value={bulkSearch} onChange={(event) => setBulkSearch(event.target.value)} placeholder="Personel ara" />
+                  </div>
+                </label>
+                <label>
+                  Departman
+                  <select value={bulkDepartment} onChange={(event) => setBulkDepartment(event.target.value)}>
+                    <option value="all">Tümü</option>
+                    {departments.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <button className="secondary-action" onClick={toggleBulkVisibleStaff}>
+                  <CheckSquare size={18} aria-hidden="true" />
+                  Görünenleri Seç
+                </button>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Seç</th>
+                      <th>Personel</th>
+                      <th>Departman</th>
+                      <th>Ünvan</th>
+                      <th>Durum</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {bulkVisibleStaff.map((member) => (
+                      <tr key={member.id} className={!member.active ? "is-muted" : ""}>
+                        <td>
+                          <input
+                            type="checkbox"
+                            checked={bulkSelectedIds.includes(member.id)}
+                            onChange={() => toggleBulkStaff(member.id)}
+                            aria-label={`${member.name} seç`}
+                          />
+                        </td>
+                        <td>
+                          <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
+                            <strong>{member.name}</strong>
+                            <span>{member.startDate || "-"}</span>
+                          </button>
+                        </td>
+                        <td>{member.department}</td>
+                        <td>{member.title}</td>
+                        <td><span className="status-toggle">{member.active ? "Aktif" : "Pasif"}</span></td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>
@@ -1897,10 +2343,64 @@ function App() {
                   onChange={(event) => updateSettings({ rowsPerPrintSide: Number(event.target.value) })}
                 />
               </label>
+              <label>
+                Tema
+                <select value={settings.theme} onChange={(event) => updateSettings({ theme: event.target.value as AppSettings["theme"] })}>
+                  <option value="light">Açık</option>
+                  <option value="dark">Koyu</option>
+                </select>
+              </label>
               <div className="firebase-card">
                 <span>Firebase</span>
                 <strong>{firebaseConfigured ? firebaseProjectId : "Config bekliyor"}</strong>
               </div>
+            </section>
+            <section className="data-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Silinen Kayıtlar</h2>
+                  <span>Yanlış silinen günlük kayıtları geri yükleyin</span>
+                </div>
+                <button className="secondary-action" onClick={() => void refreshDeletedAttendance()}>
+                  <RefreshCw size={18} aria-hidden="true" />
+                  Yenile
+                </button>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Silinme</th>
+                      <th>Tarih</th>
+                      <th>Personel</th>
+                      <th>Durum</th>
+                      <th>Açıklama</th>
+                      <th aria-label="İşlem" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deletedAttendance.map((item) => (
+                      <tr key={item.id}>
+                        <td>{new Date(item.deletedAt).toLocaleString("tr-TR")}</td>
+                        <td>{item.record.date}</td>
+                        <td>
+                          <strong>{item.staffName}</strong>
+                          <span>{item.deletedBy ?? ""}</span>
+                        </td>
+                        <td><StatusPill status={item.record.status} /></td>
+                        <td>{item.record.lateReason}</td>
+                        <td>
+                          <button className="secondary-action" onClick={() => void handleRestoreDeletedAttendance(item)} disabled={busy}>
+                            <ArchiveRestore size={18} aria-hidden="true" />
+                            Geri Yükle
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!deletedAttendance.length && <div className="empty-state">Silinen kayıt bulunmuyor.</div>}
             </section>
             <section className="data-panel">
               <div className="panel-heading">

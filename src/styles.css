@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   color: #17202a;
   background: #f4f7fb;
   font-family:
@@ -18,6 +19,22 @@
   --blue: #2563eb;
 }
 
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  color: #e6eef8;
+  background: #111827;
+  --ink: #e6eef8;
+  --muted: #a9b6c7;
+  --line: #334155;
+  --panel: #172033;
+  --soft: #111827;
+  --teal: #14b8a6;
+  --teal-dark: #5eead4;
+  --amber: #fbbf24;
+  --red: #f87171;
+  --blue: #60a5fa;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -27,6 +44,10 @@ body {
   margin: 0;
   color: var(--ink);
   background: var(--soft);
+}
+
+:root[data-theme="dark"] body {
+  background: #111827;
 }
 
 button,
@@ -527,6 +548,12 @@ button:disabled {
   font-weight: 900;
 }
 
+.data-table input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--teal);
+}
+
 .data-table td strong {
   display: block;
   font-size: 14px;
@@ -701,6 +728,69 @@ button:disabled {
 .person-card strong {
   font-size: 20px;
   line-height: 1.2;
+}
+
+.profile-hero {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.4fr) minmax(240px, 0.7fr);
+  gap: 12px;
+  align-items: stretch;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.profile-hero > div:first-child {
+  display: grid;
+  align-content: center;
+  gap: 7px;
+  padding: 16px;
+  border-left: 5px solid var(--teal);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.profile-hero h2 {
+  margin: 0;
+  font-size: 26px;
+  line-height: 1.15;
+}
+
+.profile-hero p {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 800;
+}
+
+.profile-dates {
+  display: grid;
+  gap: 8px;
+  align-content: center;
+}
+
+.profile-dates span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 34px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--muted);
+  background: #f8fafc;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.profile-dates strong {
+  color: var(--ink);
+}
+
+.bulk-divider {
+  height: 1px;
+  margin: 2px 0;
+  background: var(--line);
 }
 
 .staff-form,
@@ -1404,6 +1494,123 @@ button:disabled {
   font-weight: 800;
 }
 
+:root[data-theme="dark"] .topbar,
+:root[data-theme="dark"] .side-nav,
+:root[data-theme="dark"] .mobile-tabbar,
+:root[data-theme="dark"] .toolbar-band,
+:root[data-theme="dark"] .data-panel,
+:root[data-theme="dark"] .settings-grid,
+:root[data-theme="dark"] .metric,
+:root[data-theme="dark"] .mini-stat,
+:root[data-theme="dark"] .dashboard-panel,
+:root[data-theme="dark"] .staff-insight,
+:root[data-theme="dark"] .print-preview-overview,
+:root[data-theme="dark"] .profile-hero,
+:root[data-theme="dark"] .login-panel,
+:root[data-theme="dark"] .connection-badge,
+:root[data-theme="dark"] .user-badge,
+:root[data-theme="dark"] .icon-button,
+:root[data-theme="dark"] .top-late-list button,
+:root[data-theme="dark"] .duplex-page,
+:root[data-theme="dark"] .firebase-card,
+:root[data-theme="dark"] .edit-form {
+  color: var(--ink);
+  border-color: var(--line);
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] input,
+:root[data-theme="dark"] select,
+:root[data-theme="dark"] textarea {
+  color: var(--ink);
+  border-color: var(--line);
+  background: #0f172a;
+}
+
+:root[data-theme="dark"] .panel-heading,
+:root[data-theme="dark"] .list-tools,
+:root[data-theme="dark"] .data-table th,
+:root[data-theme="dark"] .dashboard-main,
+:root[data-theme="dark"] .dashboard-log,
+:root[data-theme="dark"] .person-card > div:first-child,
+:root[data-theme="dark"] .profile-hero > div:first-child,
+:root[data-theme="dark"] .profile-dates span,
+:root[data-theme="dark"] .staff-insight-person,
+:root[data-theme="dark"] .firebase-card {
+  background: #1e293b;
+}
+
+:root[data-theme="dark"] .data-table td {
+  background: #172033;
+}
+
+:root[data-theme="dark"] .data-table tr.row-status-present td {
+  background: #132620;
+}
+
+:root[data-theme="dark"] .data-table tr.row-status-late td {
+  background: #2b2414;
+}
+
+:root[data-theme="dark"] .data-table tr.row-status-absent td {
+  background: #2b1717;
+}
+
+:root[data-theme="dark"] .data-table tr.row-status-excused td {
+  background: #17233b;
+}
+
+:root[data-theme="dark"] .status-toggle,
+:root[data-theme="dark"] .secondary-action {
+  color: #5eead4;
+  border-color: #256b62;
+  background: #12312e;
+}
+
+:root[data-theme="dark"] .late-none,
+:root[data-theme="dark"] .status-empty,
+:root[data-theme="dark"] .flag {
+  color: var(--muted);
+  background: #263244;
+}
+
+:root[data-theme="dark"] .status-present,
+:root[data-theme="dark"] .late-soft,
+:root[data-theme="dark"] .flag.is-open {
+  color: #5eead4;
+  background: #12312e;
+}
+
+:root[data-theme="dark"] .status-late,
+:root[data-theme="dark"] .late-warning,
+:root[data-theme="dark"] .flag.is-locked,
+:root[data-theme="dark"] .flag.is-holiday {
+  color: #fde68a;
+  background: #3b2f13;
+}
+
+:root[data-theme="dark"] .status-absent,
+:root[data-theme="dark"] .late-severe,
+:root[data-theme="dark"] .warning-chip {
+  color: #fecaca;
+  background: #3b1717;
+}
+
+:root[data-theme="dark"] .status-excused {
+  color: #bfdbfe;
+  background: #172554;
+}
+
+:root[data-theme="dark"] .auth-page {
+  background: #111827;
+}
+
+:root[data-theme="dark"] .notice {
+  color: #bfdbfe;
+  border-color: #1d4ed8;
+  background: #172554;
+}
+
 @media (max-width: 940px) {
   .app-shell {
     grid-template-columns: 1fr;
@@ -1459,6 +1666,7 @@ button:disabled {
   .workspace.two-column,
   .settings-grid,
   .person-card,
+  .profile-hero,
   .dashboard-panel,
   .chart-grid {
     grid-template-columns: 1fr;

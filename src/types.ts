@@ -21,6 +21,14 @@ export type AttendanceRecord = {
   updatedAt?: string;
 };
 
+export type DeletedAttendanceRecord = {
+  id: string;
+  record: AttendanceRecord;
+  staffName: string;
+  deletedAt: string;
+  deletedBy?: string | null;
+};
+
 export type PrintArchiveRecord = {
   id: string;
   date: string;
@@ -54,4 +62,5 @@ export type AppSettings = {
   shiftStart: string;
   lateAfterMinutes: number;
   rowsPerPrintSide: number;
+  theme: "light" | "dark";
 };

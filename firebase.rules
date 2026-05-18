@@ -20,6 +20,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /deletedAttendance/{deletedAttendanceId} {
+      allow read, write: if isAdmin();
+    }
+
     match /printArchives/{archiveId} {
       allow read, write: if isAdmin();
     }
