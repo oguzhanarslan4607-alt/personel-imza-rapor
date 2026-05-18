@@ -727,7 +727,7 @@ button:disabled {
 
 .signature-table th,
 .signature-table td {
-  height: 8mm;
+  height: 7mm;
   border: 1px solid #111827;
   padding: 1mm 1.2mm;
   text-align: left;
@@ -751,10 +751,17 @@ button:disabled {
   width: 43mm;
 }
 
-.signature-table td:nth-child(2) {
+.signature-table td:nth-child(2),
+.signature-name-cell,
+.signature-name-cell strong {
   color: #000;
-  font-size: 9pt;
+  font-size: 9.4pt;
   font-weight: 900;
+  line-height: 1.05;
+}
+
+.signature-name-cell strong {
+  display: block;
 }
 
 .signature-table th:nth-child(3),
@@ -877,6 +884,14 @@ button:disabled {
 
   .signature-table th,
   .signature-table td {
-    height: 8mm;
+    height: 7mm;
+  }
+
+  .signature-table td:nth-child(2),
+  .signature-name-cell,
+  .signature-name-cell strong {
+    color: #000 !important;
+    font-size: 9.4pt !important;
+    font-weight: 900 !important;
   }
 }

@@ -1680,7 +1680,9 @@ function SheetPage({
           {staff.map((member, index) => (
             <tr key={member.id}>
               <td>{startNumber + index + 1}</td>
-              <td>{member.name}</td>
+              <td className="signature-name-cell">
+                <strong>{member.name}</strong>
+              </td>
               <td>{member.title}</td>
               <td>{member.department}</td>
               <td>{settings.shiftStart}</td>
