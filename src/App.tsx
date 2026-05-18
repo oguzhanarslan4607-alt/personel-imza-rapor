@@ -1,18 +1,24 @@
 import {
+  Activity,
   BarChart3,
   CalendarCheck,
   CalendarDays,
   CheckCircle2,
+  Clock3,
   Database,
   Edit3,
+  Eye,
   FileUp,
   FileSpreadsheet,
   FileDown,
   History,
   KeyRound,
+  LayoutDashboard,
+  ListChecks,
   Lock,
   LogOut,
   Mail,
+  PieChart,
   Plus,
   Printer,
   RefreshCw,
@@ -72,6 +78,25 @@ type DraftRecord = {
   status: AttendanceStatus | "";
   lateReason: string;
 };
+type StatusCounts = Record<AttendanceStatus, number> & { total: number; lateMinutes: number };
+type ReportSummaryRow = {
+  staff: StaffMember;
+  total: number;
+  present: number;
+  late: number;
+  absent: number;
+  excused: number;
+  lateMinutes: number;
+};
+type DailyTrendRow = StatusCounts & { date: string };
+type DepartmentReportRow = StatusCounts & { department: string };
+type StaffInsight = {
+  staff: StaffMember;
+  counts: StatusCounts;
+  todayDraft: DraftRecord;
+  todayStatus: AttendanceStatus | "";
+  lastRecord: AttendanceRecord | null;
+};
 
 const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = [
   { key: "daily", label: "Günlük Kayıt", icon: CalendarCheck },
@@ -124,6 +149,23 @@ function getLateMinutes(checkInTime: string, settings: AppSettings) {
 function getRecordLateMinutes(record: AttendanceRecord, settings: AppSettings) {
   if (record.status !== "late") return 0;
   return getLateMinutes(record.checkInTime, settings);
+}
+
+function getDraftStatus(draft: DraftRecord, settings: AppSettings): AttendanceStatus | "" {
+  return draft.status || (draft.checkInTime ? computeStatusFromTime(draft.checkInTime, settings) : "");
+}
+
+function createEmptyCounts(): StatusCounts {
+  return { total: 0, present: 0, late: 0, absent: 0, excused: 0, lateMinutes: 0 };
+}
+
+function formatShortDate(value: string) {
+  const [, month = "", day = ""] = value.split("-");
+  return `${day}.${month}`;
+}
+
+function getStatusRowClass(status: AttendanceStatus | "") {
+  return status ? `row-status-${status}` : "row-status-empty";
 }
 
 function normalizeText(value: string) {
@@ -277,6 +319,7 @@ function App() {
   const [reportDepartment, setReportDepartment] = useState("all");
   const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
+  const [selectedStaffId, setSelectedStaffId] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
   const [importText, setImportText] = useState("");
@@ -317,12 +360,13 @@ function App() {
   const canUseApp = !firebaseConfigured || (Boolean(admin) && accessState === "allowed");
   const selectedDateIsSunday = isSundayIso(selectedDate);
   const selectedDayLocked = Boolean(dayLock?.locked);
+  const selectedStaff = selectedStaffId ? staffById.get(selectedStaffId) ?? null : null;
 
   const dailyStats = useMemo(() => {
     return activeStaff.reduce(
       (stats, member) => {
         const draft = drafts[member.id] ?? emptyDraft;
-        const status = draft.status || (draft.checkInTime ? computeStatusFromTime(draft.checkInTime, settings) : "");
+        const status = getDraftStatus(draft, settings);
         if (status || draft.checkInTime || draft.lateReason.trim()) stats.processed += 1;
         if (status === "present") stats.present += 1;
         if (status === "late") stats.late += 1;
@@ -365,18 +409,7 @@ function App() {
   }, [reportDepartment, reportRows, reportStaffId, staffById]);
 
   const reportSummaryRows = useMemo(() => {
-    const summary = new Map<
-      string,
-      {
-        staff: StaffMember;
-        total: number;
-        present: number;
-        late: number;
-        absent: number;
-        excused: number;
-        lateMinutes: number;
-      }
-    >();
+    const summary = new Map<string, ReportSummaryRow>();
 
     filteredReportRows.forEach((record) => {
       const staffMember = staffById.get(record.staffId);
@@ -407,6 +440,65 @@ function App() {
 
   const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
   const warningRows = reportSummaryRows.filter((row) => row.late >= 3);
+  const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
+    if (!selectedStaff) return null;
+
+    const rows = filteredReportRows.filter((record) => record.staffId === selectedStaff.id);
+    const counts = rows.reduce((current, record) => {
+      current.total += 1;
+      current[record.status] += 1;
+      current.lateMinutes += getRecordLateMinutes(record, settings);
+      return current;
+    }, createEmptyCounts());
+    const todayDraft = drafts[selectedStaff.id] ?? emptyDraft;
+    const todayStatus = getDraftStatus(todayDraft, settings);
+
+    return {
+      staff: selectedStaff,
+      counts,
+      todayDraft,
+      todayStatus,
+      lastRecord: rows[rows.length - 1] ?? null,
+    };
+  }, [drafts, filteredReportRows, selectedStaff, settings]);
+  const dailyProgress = activeStaff.length ? Math.round((dailyStats.processed / activeStaff.length) * 100) : 0;
+  const lastAuditLog = auditLogs[0] ?? null;
+  const dailyTrendRows = useMemo(() => {
+    const byDate = new Map<string, DailyTrendRow>();
+
+    filteredReportRows.forEach((record) => {
+      const current = byDate.get(record.date) ?? { date: record.date, ...createEmptyCounts() };
+      current.total += 1;
+      current[record.status] += 1;
+      current.lateMinutes += getRecordLateMinutes(record, settings);
+      byDate.set(record.date, current);
+    });
+
+    return Array.from(byDate.values()).sort((a, b) => a.date.localeCompare(b.date));
+  }, [filteredReportRows, settings]);
+  const departmentReportRows = useMemo(() => {
+    const byDepartment = new Map<string, DepartmentReportRow>();
+
+    filteredReportRows.forEach((record) => {
+      const member = staffById.get(record.staffId);
+      const department = member?.department?.trim() || "Departmansız";
+      const current = byDepartment.get(department) ?? { department, ...createEmptyCounts() };
+      current.total += 1;
+      current[record.status] += 1;
+      current.lateMinutes += getRecordLateMinutes(record, settings);
+      byDepartment.set(department, current);
+    });
+
+    return Array.from(byDepartment.values()).sort((a, b) => b.total - a.total || a.department.localeCompare(b.department, "tr"));
+  }, [filteredReportRows, settings, staffById]);
+  const topLateRows = useMemo(
+    () =>
+      [...reportSummaryRows]
+        .filter((row) => row.late > 0 || row.lateMinutes > 0 || row.absent > 0)
+        .sort((a, b) => b.late - a.late || b.lateMinutes - a.lateMinutes || b.absent - a.absent)
+        .slice(0, 5),
+    [reportSummaryRows],
+  );
 
   async function refreshStaff() {
     setBusy(true);
@@ -1013,35 +1105,65 @@ function App() {
   return (
     <>
       <div className="app-shell screen-only">
-        <header className="topbar">
-          <div>
-            <p className="eyebrow">Personel devam sistemi</p>
-            <h1>{settings.companyName}</h1>
-          </div>
-          <div className="top-actions">
-            <span className={`connection-badge ${firebaseConfigured ? "is-online" : "is-local"}`}>
-              <Database size={16} aria-hidden="true" />
-              {firebaseConfigured ? `Firebase ${firebaseProjectId}` : "Yerel taslak"}
+        <aside className="side-nav">
+          <div className="side-brand">
+            <span className="side-brand-icon">
+              <ListChecks size={22} aria-hidden="true" />
             </span>
-            {firebaseConfigured && admin && (
-              <>
-                <span className="user-badge">
-                  <ShieldCheck size={16} aria-hidden="true" />
-                  {admin.email}
-                </span>
-                <button className="secondary-action" onClick={() => void handleSignOut()} disabled={busy}>
-                  <LogOut size={18} aria-hidden="true" />
-                  Çıkış
-                </button>
-              </>
-            )}
-            <button className="icon-button" onClick={() => void refreshStaff()} title="Yenile" aria-label="Yenile">
-              <RefreshCw size={18} />
-            </button>
+            <div>
+              <p className="eyebrow">Personel devam sistemi</p>
+              <strong>{settings.companyName}</strong>
+            </div>
           </div>
-        </header>
 
-        <nav className="tabbar" aria-label="Ana bölümler">
+          <nav className="tabbar" aria-label="Ana bölümler">
+            {tabs.map((tab) => {
+              const Icon = tab.icon;
+              return (
+                <button
+                  key={tab.key}
+                  className={activeTab === tab.key ? "is-active" : ""}
+                  onClick={() => setActiveTab(tab.key)}
+                  title={tab.label}
+                >
+                  <Icon size={18} aria-hidden="true" />
+                  <span>{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+
+        <div className="content-shell">
+          <header className="topbar">
+            <div>
+              <p className="eyebrow">Yönetici paneli</p>
+              <h1>{settings.companyName}</h1>
+            </div>
+            <div className="top-actions">
+              <span className={`connection-badge ${firebaseConfigured ? "is-online" : "is-local"}`}>
+                <Database size={16} aria-hidden="true" />
+                {firebaseConfigured ? `Firebase ${firebaseProjectId}` : "Yerel taslak"}
+              </span>
+              {firebaseConfigured && admin && (
+                <>
+                  <span className="user-badge">
+                    <ShieldCheck size={16} aria-hidden="true" />
+                    {admin.email}
+                  </span>
+                  <button className="secondary-action" onClick={() => void handleSignOut()} disabled={busy}>
+                    <LogOut size={18} aria-hidden="true" />
+                    Çıkış
+                  </button>
+                </>
+              )}
+              <button className="icon-button" onClick={() => void refreshStaff()} title="Yenile" aria-label="Yenile">
+                <RefreshCw size={18} />
+              </button>
+            </div>
+          </header>
+
+          <nav className="mobile-tabbar" aria-label="Ana bölümler">
           {tabs.map((tab) => {
             const Icon = tab.icon;
             return (
@@ -1056,12 +1178,25 @@ function App() {
               </button>
             );
           })}
-        </nav>
+          </nav>
 
-        {message && <div className="notice">{message}</div>}
+          {message && <div className="notice">{message}</div>}
 
         {activeTab === "daily" && (
           <main className="workspace">
+            <DailyDashboard
+              selectedDate={selectedDate}
+              shiftStart={settings.shiftStart}
+              lateAfterMinutes={settings.lateAfterMinutes}
+              activeStaffCount={activeStaff.length}
+              dailyStats={dailyStats}
+              dailyEmptyCount={dailyEmptyCount}
+              dailyProgress={dailyProgress}
+              isHoliday={selectedDateIsSunday}
+              isLocked={selectedDayLocked}
+              lastAuditLog={lastAuditLog}
+            />
+
             <section className="toolbar-band">
               <label>
                 Tarih
@@ -1144,6 +1279,8 @@ function App() {
               <Metric label="İzinli" value={dailyStats.excused} tone="blue" />
             </section>
 
+            {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />}
+
             <section className="data-panel">
               <div className="table-scroll">
                 <table className="data-table attendance-table">
@@ -1162,13 +1299,16 @@ function App() {
                     {filteredDailyStaff.map((member, index) => {
                       const draft = drafts[member.id] ?? emptyDraft;
                       const lateMinutes = getLateMinutes(draft.checkInTime, settings);
+                      const status = getDraftStatus(draft, settings);
 
                       return (
-                        <tr key={member.id}>
+                        <tr key={member.id} className={getStatusRowClass(status)}>
                           <td className="number-cell">{index + 1}</td>
                           <td>
-                            <strong>{member.name}</strong>
-                            <span>{[member.department, member.title].filter(Boolean).join(" / ")}</span>
+                            <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
+                              <strong>{member.name}</strong>
+                              <span>{[member.department, member.title].filter(Boolean).join(" / ")}</span>
+                            </button>
                           </td>
                           <td>
                             <input
@@ -1254,6 +1394,15 @@ function App() {
                 Arşivle
               </button>
             </section>
+
+            <PrintPreviewOverview
+              pageCount={printPages.length}
+              staffCount={activeStaff.length}
+              rowsPerPrintSide={settings.rowsPerPrintSide}
+              shiftStart={settings.shiftStart}
+              selectedDate={selectedDate}
+              pages={printPages}
+            />
 
             <section className="data-panel archive-panel">
               <div className="panel-heading">
@@ -1364,6 +1513,15 @@ function App() {
               <Metric label="İzinli" value={reportStats.excused} tone="blue" />
             </section>
 
+            <ReportCharts
+              dailyTrendRows={dailyTrendRows}
+              departmentRows={departmentReportRows}
+              topLateRows={topLateRows}
+              onSelectStaff={setSelectedStaffId}
+            />
+
+            {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />}
+
             {selectedPersonSummary && (
               <section className="person-card">
                 <div>
@@ -1411,11 +1569,13 @@ function App() {
                   </thead>
                   <tbody>
                     {reportSummaryRows.map((row) => (
-                      <tr key={row.staff.id}>
+                      <tr key={row.staff.id} className={row.late >= 3 ? "row-status-late" : ""}>
                         <td className="number-cell">{(staffRankById.get(row.staff.id) ?? 0) + 1}</td>
                         <td>
-                          <strong>{row.staff.name}</strong>
-                          <span>{row.staff.title}</span>
+                          <button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}>
+                            <strong>{row.staff.name}</strong>
+                            <span>{row.staff.title}</span>
+                          </button>
                         </td>
                         <td>{row.staff.department}</td>
                         <td>{row.total}</td>
@@ -1450,9 +1610,18 @@ function App() {
                     {filteredReportRows.map((record) => {
                       const member = staffById.get(record.staffId);
                       return (
-                        <tr key={record.id}>
+                        <tr key={record.id} className={getStatusRowClass(record.status)}>
                           <td>{record.date}</td>
-                          <td>{member?.name ?? ""}</td>
+                          <td>
+                            {member ? (
+                              <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
+                                <strong>{member.name}</strong>
+                                <span>{member.title}</span>
+                              </button>
+                            ) : (
+                              ""
+                            )}
+                          </td>
                           <td>{member?.department ?? ""}</td>
                           <td>{record.checkInTime}</td>
                           <td>
@@ -1598,7 +1767,10 @@ function App() {
                   />
                 </label>
                 <label>
-                  Excel CSV Dosyası
+                  <span className="label-with-icon">
+                    <FileUp size={16} aria-hidden="true" />
+                    Excel CSV Dosyası
+                  </span>
                   <input type="file" accept=".csv,.txt" onChange={(event) => void handleImportStaffFile(event.target.files?.[0] ?? null)} />
                 </label>
                 <div className="button-row">
@@ -1635,6 +1807,7 @@ function App() {
                   </select>
                 </label>
               </div>
+              {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} compact />}
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
@@ -1653,8 +1826,10 @@ function App() {
                       <tr key={member.id} className={!member.active ? "is-muted" : ""}>
                         <td className="number-cell">{index + 1}</td>
                         <td>
-                          <strong>{member.name}</strong>
-                          <span>{member.title}</span>
+                          <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
+                            <strong>{member.name}</strong>
+                            <span>{member.title}</span>
+                          </button>
                         </td>
                         <td>{member.department}</td>
                         <td>{member.startDate}</td>
@@ -1768,6 +1943,7 @@ function App() {
             </section>
           </main>
         )}
+        </div>
       </div>
 
       <div className="print-area" aria-hidden="true">
@@ -1922,8 +2098,254 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: "
   );
 }
 
-function StatusPill({ status }: { status: AttendanceStatus }) {
-  return <span className={`status-pill status-${status}`}>{statusLabels[status]}</span>;
+function StatusPill({ status }: { status: AttendanceStatus | "" }) {
+  return <span className={`status-pill status-${status || "empty"}`}>{status ? statusLabels[status] : "Boş"}</span>;
+}
+
+function DailyDashboard({
+  selectedDate,
+  shiftStart,
+  lateAfterMinutes,
+  activeStaffCount,
+  dailyStats,
+  dailyEmptyCount,
+  dailyProgress,
+  isHoliday,
+  isLocked,
+  lastAuditLog,
+}: {
+  selectedDate: string;
+  shiftStart: string;
+  lateAfterMinutes: number;
+  activeStaffCount: number;
+  dailyStats: { processed: number; present: number; late: number; absent: number; excused: number };
+  dailyEmptyCount: number;
+  dailyProgress: number;
+  isHoliday: boolean;
+  isLocked: boolean;
+  lastAuditLog: AuditLogRecord | null;
+}) {
+  return (
+    <section className="dashboard-panel">
+      <div className="dashboard-main">
+        <span className="section-kicker">
+          <LayoutDashboard size={17} aria-hidden="true" />
+          Günlük kontrol
+        </span>
+        <h2>{formatDateTr(selectedDate)}</h2>
+        <p>
+          Mesai {shiftStart}, tolerans {lateAfterMinutes} dk. {isHoliday ? "Pazar resmi tatil." : "Normal çalışma günü."}
+        </p>
+        <div className="progress-track" aria-label="Günlük kayıt ilerlemesi">
+          <span style={{ width: `${dailyProgress}%` }} />
+        </div>
+        <div className="dashboard-flags">
+          <span className={isLocked ? "flag is-locked" : "flag is-open"}>{isLocked ? "Gün kilitli" : "Gün açık"}</span>
+          <span className={isHoliday ? "flag is-holiday" : "flag"}>{isHoliday ? "Resmi tatil" : "Mesai günü"}</span>
+          <span className="flag">{dailyProgress}% işlendi</span>
+        </div>
+      </div>
+      <div className="dashboard-metrics">
+        <MiniStat label="Personel" value={activeStaffCount} tone="blue" />
+        <MiniStat label="İşlenen" value={dailyStats.processed} tone="green" />
+        <MiniStat label="Eksik" value={dailyEmptyCount} tone="amber" />
+        <MiniStat label="Geç" value={dailyStats.late} tone="red" />
+      </div>
+      <div className="dashboard-log">
+        <span className="section-kicker">
+          <History size={17} aria-hidden="true" />
+          Son işlem
+        </span>
+        {lastAuditLog ? (
+          <>
+            <strong>{lastAuditLog.action}</strong>
+            <small>{new Date(lastAuditLog.createdAt).toLocaleString("tr-TR")}</small>
+            <p>{lastAuditLog.detail || lastAuditLog.createdBy}</p>
+          </>
+        ) : (
+          <p>Henüz işlem kaydı yok.</p>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function MiniStat({ label, value, tone }: { label: string; value: number; tone?: "green" | "amber" | "red" | "blue" }) {
+  return (
+    <div className={`mini-stat ${tone ? `tone-${tone}` : ""}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
+function StaffInsightPanel({ insight, onClose, compact = false }: { insight: StaffInsight; onClose: () => void; compact?: boolean }) {
+  return (
+    <section className={`staff-insight ${compact ? "is-compact" : ""}`}>
+      <div className="staff-insight-head">
+        <span className="section-kicker">
+          <Eye size={17} aria-hidden="true" />
+          Personel kartı
+        </span>
+        <button className="icon-button" onClick={onClose} title="Kapat" aria-label="Personel kartını kapat">
+          <X size={17} />
+        </button>
+      </div>
+      <div className="staff-insight-person">
+        <strong>{insight.staff.name}</strong>
+        <span>{[insight.staff.department, insight.staff.title].filter(Boolean).join(" / ") || "Departman yok"}</span>
+        <small>
+          {insight.staff.startDate ? `Giriş: ${insight.staff.startDate}` : "Giriş tarihi yok"}
+          {insight.staff.endDate ? ` · Çıkış: ${insight.staff.endDate}` : ""}
+        </small>
+      </div>
+      <div className="staff-insight-grid">
+        <MiniStat label="Bugün" value={insight.todayStatus ? 1 : 0} tone={insight.todayStatus === "late" ? "amber" : "blue"} />
+        <MiniStat label="Geç Gün" value={insight.counts.late} tone="amber" />
+        <MiniStat label="Gelmedi" value={insight.counts.absent} tone="red" />
+        <MiniStat label="Gecikme Dk" value={insight.counts.lateMinutes} tone="blue" />
+      </div>
+      <div className="staff-insight-foot">
+        <StatusPill status={insight.todayStatus} />
+        <span>{insight.todayDraft.checkInTime || "Giriş yok"}</span>
+        <span>{insight.lastRecord ? `Son kayıt: ${insight.lastRecord.date}` : "Rapor kaydı yok"}</span>
+      </div>
+    </section>
+  );
+}
+
+function ReportCharts({
+  dailyTrendRows,
+  departmentRows,
+  topLateRows,
+  onSelectStaff,
+}: {
+  dailyTrendRows: DailyTrendRow[];
+  departmentRows: DepartmentReportRow[];
+  topLateRows: ReportSummaryRow[];
+  onSelectStaff: (id: string) => void;
+}) {
+  const visibleDays = dailyTrendRows.slice(-31);
+  const maxDayTotal = Math.max(1, ...visibleDays.map((row) => row.total));
+  const maxDepartmentTotal = Math.max(1, ...departmentRows.map((row) => row.total));
+
+  return (
+    <section className="chart-grid">
+      <div className="data-panel chart-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Günlük Dağılım</h2>
+            <span>{visibleDays.length ? `${visibleDays[0].date} - ${visibleDays[visibleDays.length - 1].date}` : "Kayıt yok"}</span>
+          </div>
+          <Activity size={19} aria-hidden="true" />
+        </div>
+        <div className="timeline-chart">
+          {visibleDays.map((row) => {
+            const dominantStatus = row.absent > 0 ? "absent" : row.late > 0 ? "late" : row.excused > 0 ? "excused" : "present";
+            return (
+              <div className="chart-day" key={row.date} title={`${row.date}: ${row.total} kayıt`}>
+                <span className={`chart-bar status-${dominantStatus}`} style={{ height: `${Math.max(8, (row.total / maxDayTotal) * 100)}%` }} />
+                <small>{formatShortDate(row.date)}</small>
+              </div>
+            );
+          })}
+          {!visibleDays.length && <div className="empty-state">Rapor getirildiğinde grafik oluşur.</div>}
+        </div>
+      </div>
+
+      <div className="data-panel chart-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Departman</h2>
+            <span>Gelmedi ve geç yoğunluğu</span>
+          </div>
+          <PieChart size={19} aria-hidden="true" />
+        </div>
+        <div className="department-bars">
+          {departmentRows.slice(0, 7).map((row) => (
+            <div className="department-bar" key={row.department}>
+              <div>
+                <strong>{row.department}</strong>
+                <span>{row.total} kayıt · {row.late} geç · {row.absent} gelmedi</span>
+              </div>
+              <div className="bar-track">
+                <span style={{ width: `${(row.total / maxDepartmentTotal) * 100}%` }} />
+              </div>
+            </div>
+          ))}
+          {!departmentRows.length && <div className="empty-state">Departman verisi yok.</div>}
+        </div>
+      </div>
+
+      <div className="data-panel chart-panel">
+        <div className="panel-heading">
+          <div>
+            <h2>Uyarı Listesi</h2>
+            <span>En çok takip gerektiren kayıtlar</span>
+          </div>
+          <TriangleAlert size={19} aria-hidden="true" />
+        </div>
+        <div className="top-late-list">
+          {topLateRows.map((row) => (
+            <button key={row.staff.id} onClick={() => onSelectStaff(row.staff.id)}>
+              <span>
+                <strong>{row.staff.name}</strong>
+                <small>{row.staff.department}</small>
+              </span>
+              <b>{row.late} geç</b>
+            </button>
+          ))}
+          {!topLateRows.length && <div className="empty-state">Uyarı gerektiren kayıt yok.</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function PrintPreviewOverview({
+  pageCount,
+  staffCount,
+  rowsPerPrintSide,
+  shiftStart,
+  selectedDate,
+  pages,
+}: {
+  pageCount: number;
+  staffCount: number;
+  rowsPerPrintSide: number;
+  shiftStart: string;
+  selectedDate: string;
+  pages: StaffMember[][];
+}) {
+  return (
+    <section className="print-preview-overview">
+      <div className="panel-heading">
+        <div>
+          <h2>Yazdırma Önizlemesi</h2>
+          <span>{formatDateTr(selectedDate)}</span>
+        </div>
+        <Printer size={19} aria-hidden="true" />
+      </div>
+      <div className="preview-stat-grid">
+        <MiniStat label="Sayfa" value={pageCount} tone="blue" />
+        <MiniStat label="Personel" value={staffCount} tone="green" />
+        <MiniStat label="Satır/Yüz" value={rowsPerPrintSide} tone="amber" />
+        <div className="mini-stat">
+          <span>Mesai</span>
+          <strong>{shiftStart}</strong>
+        </div>
+      </div>
+      <div className="duplex-map">
+        {pages.map((page, index) => (
+          <div className="duplex-page" key={`${index}-${page.length}`}>
+            <span>{index + 1}</span>
+            <strong>{index === 0 ? "Ön yüz" : index === 1 ? "Arka yüz" : `${index + 1}. sayfa`}</strong>
+            <small>{page.length} satır</small>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function SheetPage({
