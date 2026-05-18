@@ -15,7 +15,6 @@ import {
   History,
   KeyRound,
   LayoutDashboard,
-  ListChecks,
   Lock,
   LogOut,
   Mail,
@@ -129,6 +128,7 @@ const emptyDraft: DraftRecord = {
   lateReason: "",
 };
 const EXTRA_SIGNATURE_ROWS = 3;
+const BRAND_LOGO_SRC = "/brand-logo.png";
 
 function sortStaff(staff: StaffMember[]) {
   return [...staff].sort(
@@ -1323,9 +1323,7 @@ function App() {
       <div className="app-shell screen-only">
         <aside className="side-nav">
           <div className="side-brand">
-            <span className="side-brand-icon">
-              <ListChecks size={22} aria-hidden="true" />
-            </span>
+            <img className="brand-logo side-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
             <div>
               <p className="eyebrow">Personel devam sistemi</p>
               <strong>{settings.companyName}</strong>
@@ -2484,9 +2482,7 @@ function LoginScreen({
     <main className="auth-page screen-only">
       <form className="login-panel" onSubmit={onSubmit}>
         <div className="login-brand">
-          <span className="login-icon">
-            <ShieldCheck size={24} aria-hidden="true" />
-          </span>
+          <img className="brand-logo login-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
           <div>
             <p className="eyebrow">Yönetici girişi</p>
             <h1>Personel Devam Sistemi</h1>
@@ -2549,9 +2545,7 @@ function AuthStatusScreen({
   return (
     <main className="auth-page screen-only">
       <section className="login-panel auth-status-panel">
-        <span className="login-icon">
-          <ShieldCheck size={24} aria-hidden="true" />
-        </span>
+        <img className="brand-logo login-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
         <div>
           <p className="eyebrow">Personel devam sistemi</p>
           <h1>{title}</h1>
@@ -2572,9 +2566,7 @@ function AccessDeniedScreen({ email, onSignOut, busy }: { email: string | null; 
   return (
     <main className="auth-page screen-only">
       <section className="login-panel auth-status-panel">
-        <span className="login-icon">
-          <ShieldCheck size={24} aria-hidden="true" />
-        </span>
+        <img className="brand-logo login-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
         <div>
           <p className="eyebrow">Yetki gerekli</p>
           <h1>Bu hesap yönetici değil</h1>
@@ -2868,9 +2860,12 @@ function SheetPage({
   return (
     <article className={`sheet-page ${preview ? "is-preview" : ""}`}>
       <header className="sheet-header">
-        <div>
-          <strong>{settings.companyName}</strong>
-          <span>{settings.formTitle}</span>
+        <div className="sheet-brand">
+          <img className="sheet-logo" src={BRAND_LOGO_SRC} alt="Logo" />
+          <div>
+            <strong>{settings.companyName}</strong>
+            <span>{settings.formTitle}</span>
+          </div>
         </div>
         <div>
           <strong>{formatDateTr(selectedDate)}</strong>

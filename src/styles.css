@@ -164,6 +164,11 @@ button {
   gap: 12px;
 }
 
+.brand-logo {
+  display: block;
+  object-fit: contain;
+}
+
 .login-brand h1,
 .auth-status-panel h1 {
   margin: 0;
@@ -180,6 +185,16 @@ button {
   border-radius: 8px;
   color: #fff;
   background: var(--teal);
+}
+
+.login-logo {
+  width: 74px;
+  height: 74px;
+  flex: 0 0 auto;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
 }
 
 .input-with-icon {
@@ -861,13 +876,31 @@ button:disabled {
   border-bottom: 1px solid #111827;
 }
 
-.sheet-header div {
+.sheet-header > div {
   display: grid;
   gap: 1mm;
 }
 
-.sheet-header div:last-child {
+.sheet-header > div:last-child {
   text-align: right;
+}
+
+.sheet-brand {
+  display: flex !important;
+  align-items: center;
+  gap: 3mm;
+}
+
+.sheet-brand > div {
+  display: grid;
+  gap: 1mm;
+}
+
+.sheet-logo {
+  width: 16mm;
+  height: 16mm;
+  flex: 0 0 auto;
+  object-fit: contain;
 }
 
 .sheet-header strong {
@@ -1039,6 +1072,16 @@ button:disabled {
   border-radius: 8px;
   color: #fff;
   background: var(--teal);
+}
+
+.side-logo {
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
 }
 
 .side-nav .tabbar {
