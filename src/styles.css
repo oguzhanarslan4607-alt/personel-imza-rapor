@@ -727,7 +727,7 @@ button:disabled {
 
 .signature-table th,
 .signature-table td {
-  height: 6.35mm;
+  height: 8mm;
   border: 1px solid #111827;
   padding: 1mm 1.2mm;
   text-align: left;
@@ -749,6 +749,12 @@ button:disabled {
 .signature-table th:nth-child(2),
 .signature-table td:nth-child(2) {
   width: 43mm;
+}
+
+.signature-table td:nth-child(2) {
+  color: #000;
+  font-size: 9pt;
+  font-weight: 900;
 }
 
 .signature-table th:nth-child(3),
@@ -871,6 +877,6 @@ button:disabled {
 
   .signature-table th,
   .signature-table td {
-    height: 6.35mm;
+    height: 8mm;
   }
 }
