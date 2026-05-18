@@ -1,11 +1,14 @@
 import {
   BarChart3,
   CalendarCheck,
+  CalendarDays,
   CheckCircle2,
   Database,
   Edit3,
+  FileUp,
   FileSpreadsheet,
   FileDown,
+  History,
   KeyRound,
   Lock,
   LogOut,
@@ -17,7 +20,9 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  TriangleAlert,
   Trash2,
+  UnlockKeyhole,
   Upload,
   Users,
   X,
@@ -31,13 +36,17 @@ import {
   firebaseConfigured,
   firebaseProjectId,
   hasAdminAccess,
+  loadAuditLogs,
   loadAttendanceByDate,
   loadAttendanceRange,
+  loadDayLock,
   loadPrintArchives,
   loadStaff,
   makeAttendanceId,
   observeAdminAuth,
+  saveAuditLog,
   saveAttendanceRecord,
+  saveDayLock,
   savePrintArchive,
   saveStaffMember,
   saveStaffMembers,
@@ -46,7 +55,15 @@ import {
   type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
-import type { AppSettings, AttendanceRecord, AttendanceStatus, PrintArchiveRecord, StaffMember } from "./types";
+import type {
+  AppSettings,
+  AttendanceRecord,
+  AttendanceStatus,
+  AuditLogRecord,
+  DayLockRecord,
+  PrintArchiveRecord,
+  StaffMember,
+} from "./types";
 
 type TabKey = "daily" | "print" | "reports" | "staff" | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
@@ -124,6 +141,35 @@ function getDepartments(staff: StaffMember[]) {
   return Array.from(new Set(staff.map((member) => member.department.trim()).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b, "tr", { sensitivity: "base" }),
   );
+}
+
+function isSundayIso(value: string) {
+  if (!value) return false;
+  return new Date(`${value}T12:00:00`).getDay() === 0;
+}
+
+function monthEndIso(value: string) {
+  const base = value ? new Date(`${value}T12:00:00`) : new Date();
+  return new Date(base.getFullYear(), base.getMonth() + 1, 0).toISOString().slice(0, 10);
+}
+
+function getLateTone(minutes: number) {
+  if (minutes >= 30) return "severe";
+  if (minutes >= 10) return "warning";
+  if (minutes > 0) return "soft";
+  return "none";
+}
+
+function parseStaffImportRows(text: string) {
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const delimiter = line.includes(";") ? ";" : line.includes("\t") ? "\t" : ",";
+      return line.split(delimiter).map((part) => part.trim().replace(/^"|"$/g, ""));
+    })
+    .filter((parts) => parts[0] && !/^ad\s*soyad$/i.test(parts[0]));
 }
 
 function chunk<T>(items: T[], size: number) {
@@ -221,6 +267,7 @@ function App() {
   const [staff, setStaff] = useState<StaffMember[]>([]);
   const [selectedDate, setSelectedDate] = useState(todayIso());
   const [drafts, setDrafts] = useState<Record<string, DraftRecord>>({});
+  const [dayLock, setDayLock] = useState<DayLockRecord | null>(null);
   const [dailySearch, setDailySearch] = useState("");
   const [dailyDepartment, setDailyDepartment] = useState("all");
   const [reportStart, setReportStart] = useState(monthStartIso());
@@ -228,12 +275,13 @@ function App() {
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
-  const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "" });
+  const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
   const [importText, setImportText] = useState("");
   const [printArchives, setPrintArchives] = useState<PrintArchiveRecord[]>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -267,6 +315,8 @@ function App() {
     [activeStaff, settings.rowsPerPrintSide],
   );
   const canUseApp = !firebaseConfigured || (Boolean(admin) && accessState === "allowed");
+  const selectedDateIsSunday = isSundayIso(selectedDate);
+  const selectedDayLocked = Boolean(dayLock?.locked);
 
   const dailyStats = useMemo(() => {
     return activeStaff.reduce(
@@ -356,6 +406,7 @@ function App() {
   }, [filteredReportRows, settings, staffById, staffRankById]);
 
   const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
+  const warningRows = reportSummaryRows.filter((row) => row.late >= 3);
 
   async function refreshStaff() {
     setBusy(true);
@@ -397,6 +448,22 @@ function App() {
     }
   }
 
+  async function refreshDayLock(date = selectedDate) {
+    try {
+      setDayLock(await loadDayLock(date));
+    } catch {
+      setDayLock(null);
+    }
+  }
+
+  async function refreshAuditLogs() {
+    try {
+      setAuditLogs(await loadAuditLogs());
+    } catch {
+      setAuditLogs([]);
+    }
+  }
+
   useEffect(() => {
     if (!firebaseConfigured) return;
 
@@ -410,6 +477,8 @@ function App() {
         setStaff([]);
         setDrafts({});
         setReportRows([]);
+        setDayLock(null);
+        setAuditLogs([]);
         return;
       }
 
@@ -421,6 +490,8 @@ function App() {
             setStaff([]);
             setDrafts({});
             setReportRows([]);
+            setDayLock(null);
+            setAuditLogs([]);
           }
         })
         .catch(() => {
@@ -428,6 +499,8 @@ function App() {
           setStaff([]);
           setDrafts({});
           setReportRows([]);
+          setDayLock(null);
+          setAuditLogs([]);
         });
     });
   }, []);
@@ -440,11 +513,13 @@ function App() {
   useEffect(() => {
     if (!canUseApp) return;
     void refreshAttendance(selectedDate);
+    void refreshDayLock(selectedDate);
   }, [canUseApp, admin?.uid, selectedDate]);
 
   useEffect(() => {
     if (!canUseApp) return;
     void refreshPrintArchives();
+    void refreshAuditLogs();
   }, [canUseApp, admin?.uid]);
 
   function updateSettings(patch: Partial<AppSettings>) {
@@ -496,6 +571,16 @@ function App() {
   }
 
   async function handleMarkEmptyAbsent() {
+    if (selectedDayLocked) {
+      setMessage("Bu gün kilitli. Kayıt değiştirmek için kilidi açın.");
+      return;
+    }
+
+    if (selectedDateIsSunday) {
+      setMessage("Pazar günleri resmi tatil olarak kabul edilir. Boş kayıtlar Gelmedi yapılmadı.");
+      return;
+    }
+
     const emptyMembers = activeStaff.filter((member) => {
       const draft = drafts[member.id] ?? emptyDraft;
       return !draft.status && !draft.checkInTime && !draft.lateReason.trim();
@@ -520,8 +605,10 @@ function App() {
           }),
         ),
       );
+      await saveAuditLog("Boş kayıtlar gelmedi yapıldı", `${selectedDate} - ${emptyMembers.length} kayıt`);
       setMessage(`${emptyMembers.length} boş kayıt Gelmedi olarak kaydedildi.`);
       await refreshAttendance(selectedDate);
+      await refreshAuditLogs();
     } catch {
       setMessage("Boş kayıtlar güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -530,6 +617,11 @@ function App() {
   }
 
   async function handleSaveDay() {
+    if (selectedDayLocked) {
+      setMessage("Bu gün kilitli. Kayıt değiştirmek için kilidi açın.");
+      return;
+    }
+
     setBusy(true);
     try {
       const records = activeStaff
@@ -556,8 +648,10 @@ function App() {
         .filter((record): record is AttendanceRecord => Boolean(record));
 
       await Promise.all(records.map((record) => saveAttendanceRecord(record)));
+      await saveAuditLog("Günlük kayıt kaydedildi", `${selectedDate} - ${records.length} kayıt`);
       setMessage(`${formatDateTr(selectedDate)} için ${records.length} kayıt kaydedildi.`);
       await refreshAttendance(selectedDate);
+      await refreshAuditLogs();
     } catch {
       setMessage("Kayıt kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -566,12 +660,43 @@ function App() {
   }
 
   async function handleClearRecord(staffId: string) {
+    if (selectedDayLocked) {
+      setMessage("Bu gün kilitli. Kayıt değiştirmek için kilidi açın.");
+      return;
+    }
+
     setBusy(true);
     try {
       await deleteAttendanceRecord(makeAttendanceId(selectedDate, staffId));
+      await saveAuditLog("Günlük kayıt temizlendi", `${selectedDate} - ${staffById.get(staffId)?.name ?? staffId}`);
       setDrafts((previous) => ({ ...previous, [staffId]: emptyDraft }));
+      await refreshAuditLogs();
     } catch {
       setMessage("Kayıt temizlenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleToggleDayLock() {
+    const nextLocked = !selectedDayLocked;
+    const record: DayLockRecord = {
+      id: selectedDate,
+      date: selectedDate,
+      locked: nextLocked,
+      updatedAt: new Date().toISOString(),
+      updatedBy: admin?.email ?? null,
+    };
+
+    setBusy(true);
+    try {
+      await saveDayLock(record);
+      await saveAuditLog(nextLocked ? "Gün kilitlendi" : "Gün kilidi açıldı", selectedDate);
+      await refreshDayLock(selectedDate);
+      await refreshAuditLogs();
+      setMessage(nextLocked ? `${formatDateTr(selectedDate)} kilitlendi.` : `${formatDateTr(selectedDate)} kilidi açıldı.`);
+    } catch {
+      setMessage("Gün kilidi güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -588,13 +713,17 @@ function App() {
       department: newStaff.department.trim(),
       title: newStaff.title.trim(),
       active: true,
+      startDate: newStaff.startDate,
+      endDate: newStaff.endDate,
     };
 
     setBusy(true);
     try {
       await saveStaffMember(member);
-      setNewStaff({ name: "", department: "", title: "" });
+      await saveAuditLog("Personel eklendi", member.name);
+      setNewStaff({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
       await refreshStaff();
+      await refreshAuditLogs();
     } catch {
       setMessage("Personel eklenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -617,9 +746,13 @@ function App() {
         name: editingStaff.name.trim(),
         department: editingStaff.department.trim(),
         title: editingStaff.title.trim(),
+        startDate: editingStaff.startDate,
+        endDate: editingStaff.endDate,
       });
+      await saveAuditLog("Personel güncellendi", editingStaff.name.trim());
       setEditingStaff(null);
       await refreshStaff();
+      await refreshAuditLogs();
       setMessage("Personel bilgileri güncellendi.");
     } catch {
       setMessage("Personel güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
@@ -629,16 +762,13 @@ function App() {
   }
 
   async function handleImportStaff() {
-    const lines = importText
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
+    const rows = parseStaffImportRows(importText);
 
-    if (!lines.length) return;
+    if (!rows.length) return;
 
     const startOrder = staff.length ? Math.max(...staff.map((item) => item.order)) + 1 : 1;
-    const members = lines.map((line, index) => {
-      const [name, department = "", title = ""] = line.split(";").map((part) => part.trim());
+    const members = rows.map((row, index) => {
+      const [name, department = "", title = "", startDate = "", endDate = ""] = row;
       return {
         id: crypto.randomUUID(),
         order: startOrder + index,
@@ -646,14 +776,18 @@ function App() {
         department,
         title,
         active: true,
+        startDate,
+        endDate,
       } satisfies StaffMember;
     });
 
     setBusy(true);
     try {
       await saveStaffMembers(members);
+      await saveAuditLog("Toplu personel aktarıldı", `${members.length} personel`);
       setImportText("");
       await refreshStaff();
+      await refreshAuditLogs();
       setMessage(`${members.length} personel eklendi.`);
     } catch {
       setMessage("Toplu personel aktarılamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
@@ -662,13 +796,22 @@ function App() {
     }
   }
 
+  async function handleImportStaffFile(file: File | null) {
+    if (!file) return;
+    const text = await file.text();
+    setImportText(text);
+    setMessage(`${file.name} dosyası yüklendi. Aktar butonuyla listeye ekleyebilirsiniz.`);
+  }
+
   async function handleSeedStaff() {
     const members = createSampleStaff(85, staff.length);
 
     setBusy(true);
     try {
       await saveStaffMembers(members);
+      await saveAuditLog("Personel şablonu oluşturuldu", `${members.length} personel`);
       await refreshStaff();
+      await refreshAuditLogs();
       setMessage("85 satırlık personel şablonu oluşturuldu.");
     } catch {
       setMessage("Personel şablonu oluşturulamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
@@ -681,7 +824,9 @@ function App() {
     setBusy(true);
     try {
       await saveStaffMember({ ...member, active: !member.active });
+      await saveAuditLog(member.active ? "Personel pasife alındı" : "Personel aktife alındı", member.name);
       await refreshStaff();
+      await refreshAuditLogs();
     } catch {
       setMessage("Personel durumu güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -695,7 +840,9 @@ function App() {
     setBusy(true);
     try {
       await deleteStaffMember(member.id);
+      await saveAuditLog("Personel silindi", member.name);
       await refreshStaff();
+      await refreshAuditLogs();
     } catch {
       setMessage("Personel silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -721,6 +868,29 @@ function App() {
     }
   }
 
+  async function handleLoadMonthlyReport() {
+    const start = monthStartIso();
+    const end = monthEndIso(start);
+    setReportStart(start);
+    setReportEnd(end);
+    setBusy(true);
+    try {
+      const records = await loadAttendanceRange(start, end);
+      setReportRows(
+        [...records].sort((a, b) => {
+          const dateSort = a.date.localeCompare(b.date);
+          if (dateSort !== 0) return dateSort;
+          return (staffRankById.get(a.staffId) ?? 0) - (staffRankById.get(b.staffId) ?? 0);
+        }),
+      );
+      setMessage("Bu ayın raporu hazırlandı.");
+    } catch {
+      setMessage("Aylık rapor alınamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function handleArchivePrintSheet() {
     const archive: PrintArchiveRecord = {
       id: `${selectedDate}_${Date.now()}`,
@@ -736,7 +906,9 @@ function App() {
     setBusy(true);
     try {
       await savePrintArchive(archive);
+      await saveAuditLog("İmza föyü arşivlendi", `${selectedDate} - ${activeStaff.length} personel`);
       await refreshPrintArchives();
+      await refreshAuditLogs();
       setMessage(`${formatDateTr(selectedDate)} imza föyü arşive eklendi.`);
     } catch {
       setMessage("İmza föyü arşivlenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
@@ -931,15 +1103,36 @@ function App() {
                   ))}
                 </select>
               </label>
-              <button className="primary-action" onClick={() => void handleSaveDay()} disabled={busy}>
+              <button className="primary-action" onClick={() => void handleSaveDay()} disabled={busy || selectedDayLocked}>
                 <Save size={18} aria-hidden="true" />
                 Kaydet
               </button>
-              <button className="secondary-action" onClick={() => void handleMarkEmptyAbsent()} disabled={busy || !dailyEmptyCount}>
+              <button className="secondary-action" onClick={() => void handleMarkEmptyAbsent()} disabled={busy || !dailyEmptyCount || selectedDayLocked || selectedDateIsSunday}>
                 <CheckCircle2 size={18} aria-hidden="true" />
                 Boşları Gelmedi Yap
               </button>
+              <button className={selectedDayLocked ? "primary-action" : "secondary-action"} onClick={() => void handleToggleDayLock()} disabled={busy}>
+                {selectedDayLocked ? <UnlockKeyhole size={18} aria-hidden="true" /> : <Lock size={18} aria-hidden="true" />}
+                {selectedDayLocked ? "Kilidi Aç" : "Günü Kilitle"}
+              </button>
             </section>
+
+            {(selectedDateIsSunday || selectedDayLocked) && (
+              <section className="alert-row">
+                {selectedDateIsSunday && (
+                  <div className="alert-card holiday-alert">
+                    <CalendarDays size={18} aria-hidden="true" />
+                    Pazar günü resmi tatil olarak kabul edilir.
+                  </div>
+                )}
+                {selectedDayLocked && (
+                  <div className="alert-card locked-alert">
+                    <Lock size={18} aria-hidden="true" />
+                    Bu gün kilitli. Kayıtlar değiştirilemez.
+                  </div>
+                )}
+              </section>
+            )}
 
             <section className="metric-row" aria-label="Günlük özet">
               <Metric label="Aktif Personel" value={activeStaff.length} />
@@ -981,13 +1174,19 @@ function App() {
                             <input
                               type="time"
                               value={draft.checkInTime}
+                              disabled={selectedDayLocked}
                               onChange={(event) => updateDraft(member.id, { checkInTime: event.target.value })}
                             />
                           </td>
-                          <td className="number-cell">{lateMinutes > 0 ? `${lateMinutes} dk` : "-"}</td>
+                          <td>
+                            <span className={`late-badge late-${getLateTone(lateMinutes)}`}>
+                              {lateMinutes > 0 ? `${lateMinutes} dk` : "-"}
+                            </span>
+                          </td>
                           <td>
                             <select
                               value={draft.status}
+                              disabled={selectedDayLocked}
                               onChange={(event) =>
                                 updateDraft(member.id, { status: event.target.value as AttendanceStatus | "" })
                               }
@@ -1003,6 +1202,7 @@ function App() {
                             <input
                               type="text"
                               value={draft.lateReason}
+                              disabled={selectedDayLocked}
                               onChange={(event) => updateDraft(member.id, { lateReason: event.target.value })}
                               placeholder="Geç kalma / izin açıklaması"
                             />
@@ -1011,6 +1211,7 @@ function App() {
                             <button
                               className="icon-button danger"
                               onClick={() => void handleClearRecord(member.id)}
+                              disabled={selectedDayLocked}
                               title="Kaydı temizle"
                               aria-label={`${member.name} kaydını temizle`}
                             >
@@ -1141,6 +1342,10 @@ function App() {
                 <BarChart3 size={18} aria-hidden="true" />
                 Getir
               </button>
+              <button className="secondary-action" onClick={() => void handleLoadMonthlyReport()} disabled={busy}>
+                <CalendarDays size={18} aria-hidden="true" />
+                Bu Ay
+              </button>
               <button className="secondary-action" onClick={handleExportExcel} disabled={!filteredReportRows.length}>
                 <FileSpreadsheet size={18} aria-hidden="true" />
                 Excel
@@ -1172,6 +1377,15 @@ function App() {
               </section>
             )}
 
+            {warningRows.length > 0 && (
+              <section className="alert-row">
+                <div className="alert-card warning-alert">
+                  <TriangleAlert size={18} aria-hidden="true" />
+                  Bu aralıkta 3 ve üzeri geç kalan personel: {warningRows.map((row) => row.staff.name).join(", ")}
+                </div>
+              </section>
+            )}
+
             <section className="data-panel report-summary-panel">
               <div className="panel-heading">
                 <div>
@@ -1192,6 +1406,7 @@ function App() {
                       <th>Gelmedi</th>
                       <th>İzinli</th>
                       <th>Gecikme Dk</th>
+                      <th>Uyarı</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1209,6 +1424,7 @@ function App() {
                         <td>{row.absent}</td>
                         <td>{row.excused}</td>
                         <td>{row.lateMinutes}</td>
+                        <td>{row.late >= 3 ? <span className="warning-chip">3+ geç</span> : "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1239,7 +1455,11 @@ function App() {
                           <td>{member?.name ?? ""}</td>
                           <td>{member?.department ?? ""}</td>
                           <td>{record.checkInTime}</td>
-                          <td>{getRecordLateMinutes(record, settings) || "-"}</td>
+                          <td>
+                            <span className={`late-badge late-${getLateTone(getRecordLateMinutes(record, settings))}`}>
+                              {getRecordLateMinutes(record, settings) || "-"}
+                            </span>
+                          </td>
                           <td>
                             <StatusPill status={record.status} />
                           </td>
@@ -1286,6 +1506,22 @@ function App() {
                     onChange={(event) => setNewStaff((previous) => ({ ...previous, title: event.target.value }))}
                   />
                 </label>
+                <label>
+                  İşe Giriş
+                  <input
+                    type="date"
+                    value={newStaff.startDate}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, startDate: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  İşten Çıkış
+                  <input
+                    type="date"
+                    value={newStaff.endDate}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, endDate: event.target.value }))}
+                  />
+                </label>
                 <button className="primary-action" type="submit" disabled={busy}>
                   <Plus size={18} aria-hidden="true" />
                   Ekle
@@ -1322,6 +1558,22 @@ function App() {
                       onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, title: event.target.value } : previous)}
                     />
                   </label>
+                  <label>
+                    İşe Giriş
+                    <input
+                      type="date"
+                      value={editingStaff.startDate ?? ""}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, startDate: event.target.value } : previous)}
+                    />
+                  </label>
+                  <label>
+                    İşten Çıkış
+                    <input
+                      type="date"
+                      value={editingStaff.endDate ?? ""}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, endDate: event.target.value } : previous)}
+                    />
+                  </label>
                   <div className="button-row">
                     <button className="primary-action" type="submit" disabled={busy}>
                       <Save size={18} aria-hidden="true" />
@@ -1342,8 +1594,12 @@ function App() {
                     value={importText}
                     onChange={(event) => setImportText(event.target.value)}
                     rows={9}
-                    placeholder="Ad Soyad;Departman;Ünvan"
+                    placeholder="Ad Soyad;Departman;Ünvan;İşe Giriş;İşten Çıkış"
                   />
+                </label>
+                <label>
+                  Excel CSV Dosyası
+                  <input type="file" accept=".csv,.txt" onChange={(event) => void handleImportStaffFile(event.target.files?.[0] ?? null)} />
                 </label>
                 <div className="button-row">
                   <button className="secondary-action" onClick={() => void handleImportStaff()} disabled={busy}>
@@ -1386,6 +1642,8 @@ function App() {
                       <th>No</th>
                       <th>Personel</th>
                       <th>Departman</th>
+                      <th>İşe Giriş</th>
+                      <th>İşten Çıkış</th>
                       <th>Durum</th>
                       <th aria-label="İşlem" />
                     </tr>
@@ -1399,6 +1657,8 @@ function App() {
                           <span>{member.title}</span>
                         </td>
                         <td>{member.department}</td>
+                        <td>{member.startDate}</td>
+                        <td>{member.endDate}</td>
                         <td>
                           <div className="row-actions">
                             <button className="icon-button" onClick={() => handleStartEditStaff(member)} title="Düzenle" aria-label={`${member.name} düzenle`}>
@@ -1470,6 +1730,40 @@ function App() {
               <div className="firebase-card">
                 <span>Firebase</span>
                 <strong>{firebaseConfigured ? firebaseProjectId : "Config bekliyor"}</strong>
+              </div>
+            </section>
+            <section className="data-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Değişiklik Geçmişi</h2>
+                  <span>Son işlemler</span>
+                </div>
+                <button className="secondary-action" onClick={() => void refreshAuditLogs()}>
+                  <History size={18} aria-hidden="true" />
+                  Yenile
+                </button>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Zaman</th>
+                      <th>İşlem</th>
+                      <th>Detay</th>
+                      <th>Kullanıcı</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditLogs.map((log) => (
+                      <tr key={log.id}>
+                        <td>{new Date(log.createdAt).toLocaleString("tr-TR")}</td>
+                        <td>{log.action}</td>
+                        <td>{log.detail}</td>
+                        <td>{log.createdBy}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
               </div>
             </section>
           </main>

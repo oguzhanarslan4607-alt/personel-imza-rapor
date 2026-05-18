@@ -7,6 +7,8 @@ export type StaffMember = {
   department: string;
   title: string;
   active: boolean;
+  startDate?: string;
+  endDate?: string;
 };
 
 export type AttendanceRecord = {
@@ -26,6 +28,22 @@ export type PrintArchiveRecord = {
   pageCount: number;
   rowsPerPrintSide: number;
   shiftStart: string;
+  createdAt: string;
+  createdBy?: string | null;
+};
+
+export type DayLockRecord = {
+  id: string;
+  date: string;
+  locked: boolean;
+  updatedAt: string;
+  updatedBy?: string | null;
+};
+
+export type AuditLogRecord = {
+  id: string;
+  action: string;
+  detail: string;
   createdAt: string;
   createdBy?: string | null;
 };

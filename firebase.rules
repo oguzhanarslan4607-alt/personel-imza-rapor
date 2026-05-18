@@ -23,5 +23,13 @@ service cloud.firestore {
     match /printArchives/{archiveId} {
       allow read, write: if isAdmin();
     }
+
+    match /dayLocks/{lockId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /auditLogs/{logId} {
+      allow read, write: if isAdmin();
+    }
   }
 }

@@ -259,6 +259,43 @@ button {
   font-weight: 700;
 }
 
+.alert-row {
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.alert-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-weight: 800;
+}
+
+.holiday-alert {
+  color: #1d4ed8;
+  border-color: #b9cdfa;
+  background: #eff6ff;
+}
+
+.locked-alert {
+  color: #744210;
+  border-color: #e9c46a;
+  background: #fff8df;
+}
+
+.warning-alert {
+  color: #8a3b12;
+  border-color: #f2bf8c;
+  background: #fff7ed;
+}
+
 .workspace {
   display: grid;
   gap: 16px;
@@ -546,6 +583,40 @@ button:disabled {
   border-radius: 999px;
   font-size: 12px;
   font-weight: 900;
+}
+
+.late-badge,
+.warning-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 58px;
+  min-height: 26px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.late-none {
+  color: var(--muted);
+  background: #edf2f7;
+}
+
+.late-soft {
+  color: #0b5f59;
+  background: #dff6f1;
+}
+
+.late-warning {
+  color: #744210;
+  background: #fff4d1;
+}
+
+.late-severe,
+.warning-chip {
+  color: #b42318;
+  background: #ffe4e2;
 }
 
 .status-present {

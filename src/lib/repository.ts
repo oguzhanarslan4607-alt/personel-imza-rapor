@@ -22,11 +22,13 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import type { AttendanceRecord, PrintArchiveRecord, StaffMember } from "../types";
+import type { AttendanceRecord, AuditLogRecord, DayLockRecord, PrintArchiveRecord, StaffMember } from "../types";
 
 const STAFF_KEY = "personel-imza.staff.v1";
 const ATTENDANCE_KEY = "personel-imza.attendance.v1";
 const PRINT_ARCHIVE_KEY = "personel-imza.printArchive.v1";
+const DAY_LOCK_KEY = "personel-imza.dayLocks.v1";
+const AUDIT_LOG_KEY = "personel-imza.auditLogs.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -318,4 +320,73 @@ export async function savePrintArchive(record: PrintArchiveRecord) {
     record,
     ...records.filter((item) => item.id !== record.id),
   ]);
+}
+
+export async function loadDayLock(date: string): Promise<DayLockRecord | null> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDoc(doc(db, "dayLocks", date));
+      return snapshot.exists() ? (snapshot.data() as DayLockRecord) : null;
+    } catch (error) {
+      console.warn("Firebase day lock read failed.", error);
+      return null;
+    }
+  }
+
+  return readLocal<DayLockRecord[]>(DAY_LOCK_KEY, []).find((record) => record.date === date) ?? null;
+}
+
+export async function saveDayLock(record: DayLockRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "dayLocks", record.date), {
+      ...record,
+      updatedBy: currentUser?.email ?? null,
+      serverUpdatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<DayLockRecord[]>(DAY_LOCK_KEY, []);
+  writeLocal(DAY_LOCK_KEY, [record, ...records.filter((item) => item.date !== record.date)]);
+}
+
+export async function loadAuditLogs(limit = 80): Promise<AuditLogRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "auditLogs"), orderBy("createdAt", "desc")));
+      return snapshot.docs.slice(0, limit).map((item) => item.data() as AuditLogRecord);
+    } catch (error) {
+      console.warn("Firebase audit log read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<AuditLogRecord[]>(AUDIT_LOG_KEY, [])
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    .slice(0, limit);
+}
+
+export async function saveAuditLog(action: string, detail: string) {
+  const record: AuditLogRecord = {
+    id: `${Date.now()}_${crypto.randomUUID()}`,
+    action,
+    detail,
+    createdAt: new Date().toISOString(),
+    createdBy: currentUser?.email ?? null,
+  };
+
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "auditLogs", record.id), {
+      ...record,
+      serverCreatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<AuditLogRecord[]>(AUDIT_LOG_KEY, []);
+  writeLocal(AUDIT_LOG_KEY, [record, ...records].slice(0, 200));
 }
