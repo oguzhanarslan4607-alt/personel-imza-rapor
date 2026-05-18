@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createSampleStaff } from "./data/sampleStaff";
-import { addMinutesToTime, compareTimes, formatDateTr, monthStartIso, todayIso } from "./lib/date";
+import { addMinutesToTime, compareTimes, formatDateTr, monthStartIso, todayIso, toLocalIsoDate } from "./lib/date";
 import {
   deleteAttendanceRecord,
   deleteStaffMember,
@@ -150,7 +150,7 @@ function isSundayIso(value: string) {
 
 function monthEndIso(value: string) {
   const base = value ? new Date(`${value}T12:00:00`) : new Date();
-  return new Date(base.getFullYear(), base.getMonth() + 1, 0).toISOString().slice(0, 10);
+  return toLocalIsoDate(new Date(base.getFullYear(), base.getMonth() + 1, 0));
 }
 
 function getLateTone(minutes: number) {
