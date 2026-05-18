@@ -439,7 +439,7 @@ function App() {
   }, [filteredReportRows, settings, staffById, staffRankById]);
 
   const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
-  const warningRows = reportSummaryRows.filter((row) => row.late >= 3);
+  const warningRows = reportSummaryRows.filter((row) => row.absent > 0);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
 
@@ -491,11 +491,11 @@ function App() {
 
     return Array.from(byDepartment.values()).sort((a, b) => b.total - a.total || a.department.localeCompare(b.department, "tr"));
   }, [filteredReportRows, settings, staffById]);
-  const topLateRows = useMemo(
+  const topAbsentRows = useMemo(
     () =>
       [...reportSummaryRows]
-        .filter((row) => row.late > 0 || row.lateMinutes > 0 || row.absent > 0)
-        .sort((a, b) => b.late - a.late || b.lateMinutes - a.lateMinutes || b.absent - a.absent)
+        .filter((row) => row.absent > 0)
+        .sort((a, b) => b.absent - a.absent || b.late - a.late || b.lateMinutes - a.lateMinutes)
         .slice(0, 5),
     [reportSummaryRows],
   );
@@ -1514,7 +1514,7 @@ function App() {
             <ReportCharts
               dailyTrendRows={dailyTrendRows}
               departmentRows={departmentReportRows}
-              topLateRows={topLateRows}
+              topAbsentRows={topAbsentRows}
               onSelectStaff={setSelectedStaffId}
             />
 
@@ -1535,7 +1535,7 @@ function App() {
               <section className="alert-row">
                 <div className="alert-card warning-alert">
                   <TriangleAlert size={18} aria-hidden="true" />
-                  Bu aralıkta 3 ve üzeri geç kalan personel: {warningRows.map((row) => row.staff.name).join(", ")}
+                  Bu aralıkta gelmeyen personel: {warningRows.map((row) => row.staff.name).join(", ")}
                 </div>
               </section>
             )}
@@ -1580,7 +1580,7 @@ function App() {
                         <td>{row.absent}</td>
                         <td>{row.excused}</td>
                         <td>{row.lateMinutes}</td>
-                        <td>{row.late >= 3 ? <span className="warning-chip">3+ geç</span> : "-"}</td>
+                        <td>{row.absent > 0 ? <span className="warning-chip">{row.absent} gelmedi</span> : "-"}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -2217,12 +2217,12 @@ function StaffInsightPanel({ insight, onClose, compact = false }: { insight: Sta
 function ReportCharts({
   dailyTrendRows,
   departmentRows,
-  topLateRows,
+  topAbsentRows,
   onSelectStaff,
 }: {
   dailyTrendRows: DailyTrendRow[];
   departmentRows: DepartmentReportRow[];
-  topLateRows: ReportSummaryRow[];
+  topAbsentRows: ReportSummaryRow[];
   onSelectStaff: (id: string) => void;
 }) {
   const visibleDays = dailyTrendRows.slice(-31);
@@ -2280,22 +2280,22 @@ function ReportCharts({
       <div className="data-panel chart-panel">
         <div className="panel-heading">
           <div>
-            <h2>Uyarı Listesi</h2>
-            <span>En çok takip gerektiren kayıtlar</span>
+            <h2>Gelmeyenler</h2>
+            <span>Gelmedi kaydı bulunan personel</span>
           </div>
           <TriangleAlert size={19} aria-hidden="true" />
         </div>
         <div className="top-late-list">
-          {topLateRows.map((row) => (
+          {topAbsentRows.map((row) => (
             <button key={row.staff.id} onClick={() => onSelectStaff(row.staff.id)}>
               <span>
                 <strong>{row.staff.name}</strong>
                 <small>{row.staff.department}</small>
               </span>
-              <b>{row.late} geç</b>
+              <b>{row.absent} gelmedi</b>
             </button>
           ))}
-          {!topLateRows.length && <div className="empty-state">Uyarı gerektiren kayıt yok.</div>}
+          {!topAbsentRows.length && <div className="empty-state">Gelmedi kaydı yok.</div>}
         </div>
       </div>
     </section>

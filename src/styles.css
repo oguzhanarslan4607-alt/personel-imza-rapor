@@ -1297,21 +1297,31 @@ button:disabled {
 }
 
 .department-bar > div:first-child {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
 }
 
 .department-bar strong,
 .top-late-list strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   font-size: 13px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
 }
 
 .department-bar span,
 .top-late-list small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
+  line-height: 1.3;
+  text-overflow: ellipsis;
 }
 
 .top-late-list button {
@@ -1329,6 +1339,10 @@ button:disabled {
   text-align: left;
 }
 
+.top-late-list button > span {
+  min-width: 0;
+}
+
 .top-late-list button:hover {
   border-color: #9ed8cf;
   background: #f5fbfa;
@@ -1336,6 +1350,7 @@ button:disabled {
 
 .top-late-list b {
   color: #8a3b12;
+  flex: 0 0 auto;
   white-space: nowrap;
 }
 
