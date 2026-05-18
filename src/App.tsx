@@ -1279,8 +1279,6 @@ function App() {
               <Metric label="İzinli" value={dailyStats.excused} tone="blue" />
             </section>
 
-            {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />}
-
             <section className="data-panel">
               <div className="table-scroll">
                 <table className="data-table attendance-table">
@@ -1519,8 +1517,6 @@ function App() {
               topLateRows={topLateRows}
               onSelectStaff={setSelectedStaffId}
             />
-
-            {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />}
 
             {selectedPersonSummary && (
               <section className="person-card">
@@ -1807,7 +1803,6 @@ function App() {
                   </select>
                 </label>
               </div>
-              {selectedStaffInsight && <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} compact />}
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
@@ -1943,6 +1938,11 @@ function App() {
             </section>
           </main>
         )}
+          {selectedStaffInsight && (
+            <div className="floating-staff-card">
+              <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />
+            </div>
+          )}
         </div>
       </div>
 
