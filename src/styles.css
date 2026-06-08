@@ -569,6 +569,62 @@ button:disabled {
   text-align: center;
 }
 
+.holiday-calendar-panel {
+  padding: 18px;
+}
+
+.holiday-calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.holiday-calendar-item,
+.holiday-match-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.holiday-calendar-item {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.holiday-calendar-item:hover,
+.holiday-calendar-item.is-selected {
+  border-color: var(--blue);
+  background: #eff6ff;
+}
+
+.holiday-calendar-item span,
+.holiday-calendar-item small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.holiday-calendar-item strong {
+  font-size: 14px;
+}
+
+.holiday-match-card {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  color: var(--blue);
+  font-weight: 900;
+}
+
+.holiday-match-card span {
+  flex: 1;
+}
+
 .table-scroll {
   width: 100%;
   overflow-x: auto;
@@ -1593,11 +1649,19 @@ button:disabled {
 :root[data-theme="dark"] .icon-button,
 :root[data-theme="dark"] .top-late-list button,
 :root[data-theme="dark"] .duplex-page,
+:root[data-theme="dark"] .holiday-calendar-item,
+:root[data-theme="dark"] .holiday-match-card,
 :root[data-theme="dark"] .firebase-card,
 :root[data-theme="dark"] .edit-form {
   color: var(--ink);
   border-color: var(--line);
   background: var(--panel);
+}
+
+:root[data-theme="dark"] .holiday-calendar-item:hover,
+:root[data-theme="dark"] .holiday-calendar-item.is-selected {
+  border-color: var(--blue);
+  background: #172033;
 }
 
 :root[data-theme="dark"] input,

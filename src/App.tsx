@@ -123,6 +123,11 @@ type ReportSummaryRow = {
 };
 type DailyTrendRow = StatusCounts & { date: string };
 type DepartmentReportRow = StatusCounts & { department: string };
+type PublicHoliday = {
+  date: string;
+  name: string;
+  duration: "full" | "half";
+};
 type StaffInsight = {
   staff: StaffMember;
   counts: StatusCounts;
@@ -179,6 +184,12 @@ const emptyDraft: DraftRecord = {
 };
 const EXTRA_SIGNATURE_ROWS = 3;
 const BRAND_LOGO_SRC = "/brand-logo.png";
+const islamicDateFormatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
+  timeZone: "UTC",
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+});
 
 function sortStaff(staff: StaffMember[]) {
   return [...staff].sort(
@@ -204,6 +215,78 @@ function timeToMinutes(time: string) {
 function getLateMinutes(checkInTime: string, settings: AppSettings) {
   if (!checkInTime) return 0;
   return Math.max(0, timeToMinutes(checkInTime) - timeToMinutes(settings.shiftStart));
+}
+
+function isoFromUtcDate(date: Date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(date.getUTCDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function utcDateFromIso(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function addDaysIso(date: string, days: number) {
+  const next = utcDateFromIso(date);
+  next.setUTCDate(next.getUTCDate() + days);
+  return isoFromUtcDate(next);
+}
+
+function getIslamicDateParts(date: Date) {
+  const parts = islamicDateFormatter.formatToParts(date);
+  return {
+    year: Number(parts.find((part) => part.type === "year")?.value ?? 0),
+    month: Number(parts.find((part) => part.type === "month")?.value ?? 0),
+    day: Number(parts.find((part) => part.type === "day")?.value ?? 0),
+  };
+}
+
+function findIslamicHolidayStart(year: number, month: number, day: number) {
+  for (let cursor = new Date(Date.UTC(year, 0, 1)); cursor.getUTCFullYear() === year; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    const parts = getIslamicDateParts(cursor);
+    if (parts.month === month && parts.day === day) return isoFromUtcDate(cursor);
+  }
+
+  return "";
+}
+
+function getTurkiyePublicHolidays(year: number): PublicHoliday[] {
+  const holidays: PublicHoliday[] = [
+    { date: `${year}-01-01`, name: "Yılbaşı", duration: "full" },
+    { date: `${year}-04-23`, name: "Ulusal Egemenlik ve Çocuk Bayramı", duration: "full" },
+    { date: `${year}-05-01`, name: "Emek ve Dayanışma Günü", duration: "full" },
+    { date: `${year}-05-19`, name: "Atatürk'ü Anma, Gençlik ve Spor Bayramı", duration: "full" },
+    { date: `${year}-07-15`, name: "Demokrasi ve Milli Birlik Günü", duration: "full" },
+    { date: `${year}-08-30`, name: "Zafer Bayramı", duration: "full" },
+    { date: `${year}-10-28`, name: "Cumhuriyet Bayramı Arefesi", duration: "half" },
+    { date: `${year}-10-29`, name: "Cumhuriyet Bayramı", duration: "full" },
+  ];
+
+  const ramadanStart = findIslamicHolidayStart(year, 10, 1);
+  if (ramadanStart) {
+    holidays.push(
+      { date: addDaysIso(ramadanStart, -1), name: "Ramazan Bayramı Arefesi", duration: "half" },
+      { date: ramadanStart, name: "Ramazan Bayramı 1. Gün", duration: "full" },
+      { date: addDaysIso(ramadanStart, 1), name: "Ramazan Bayramı 2. Gün", duration: "full" },
+      { date: addDaysIso(ramadanStart, 2), name: "Ramazan Bayramı 3. Gün", duration: "full" },
+    );
+  }
+
+  const sacrificeStart = findIslamicHolidayStart(year, 12, 10);
+  if (sacrificeStart) {
+    holidays.push(
+      { date: addDaysIso(sacrificeStart, -1), name: "Kurban Bayramı Arefesi", duration: "half" },
+      { date: sacrificeStart, name: "Kurban Bayramı 1. Gün", duration: "full" },
+      { date: addDaysIso(sacrificeStart, 1), name: "Kurban Bayramı 2. Gün", duration: "full" },
+      { date: addDaysIso(sacrificeStart, 2), name: "Kurban Bayramı 3. Gün", duration: "full" },
+      { date: addDaysIso(sacrificeStart, 3), name: "Kurban Bayramı 4. Gün", duration: "full" },
+    );
+  }
+
+  return holidays.sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function getRecordLateMinutes(record: AttendanceRecord, settings: AppSettings) {
@@ -697,6 +780,12 @@ function App() {
       paidCompensation: holidayWorkRecords.filter((record) => record.compensationType === "paid").length,
     }),
     [holidayWorkRecords],
+  );
+  const holidayWorkYear = Number(holidayWorkForm.date.slice(0, 4)) || getCurrentYear();
+  const publicHolidays = useMemo(() => getTurkiyePublicHolidays(holidayWorkYear), [holidayWorkYear]);
+  const selectedPublicHoliday = useMemo(
+    () => publicHolidays.find((holiday) => holiday.date === holidayWorkForm.date) ?? null,
+    [holidayWorkForm.date, publicHolidays],
   );
   const annualLeaveYear = annualLeaveForm.year || getCurrentYear();
   const annualLeaveRowsForYear = useMemo(
@@ -1483,16 +1572,38 @@ function App() {
   }
 
   function resetHolidayWorkForm() {
+    const today = todayIso();
+    const publicHoliday = getTurkiyePublicHolidays(Number(today.slice(0, 4)) || getCurrentYear()).find((holiday) => holiday.date === today);
     setHolidayWorkForm({
       id: "",
       staffId: activeStaff[0]?.id ?? "",
-      date: todayIso(),
-      holidayName: "",
+      date: today,
+      holidayName: publicHoliday?.name ?? "",
       startTime: settings.shiftStart,
       endTime: "17:30",
       compensationType: "paid",
       notes: "",
     });
+  }
+
+  function handleHolidayWorkDateChange(date: string) {
+    const publicHoliday = getTurkiyePublicHolidays(Number(date.slice(0, 4)) || getCurrentYear()).find((holiday) => holiday.date === date);
+    setHolidayWorkForm((previous) => ({
+      ...previous,
+      date,
+      holidayName: publicHoliday?.name ?? "",
+    }));
+  }
+
+  function handlePublicHolidaySelect(date: string) {
+    const publicHoliday = publicHolidays.find((holiday) => holiday.date === date);
+    if (!publicHoliday) return;
+
+    setHolidayWorkForm((previous) => ({
+      ...previous,
+      date: publicHoliday.date,
+      holidayName: publicHoliday.name,
+    }));
   }
 
   async function handleSaveHolidayWork(event: FormEvent) {
@@ -2566,6 +2677,30 @@ function App() {
               <Metric label="İzin Karşılığı" value={holidayWorkStats.leaveCompensation} tone="amber" />
             </section>
 
+            <section className="data-panel holiday-calendar-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>{holidayWorkYear} Türkiye Resmi Tatilleri</h2>
+                  <span>2429 sayılı kanundaki ulusal ve dini bayramlar</span>
+                </div>
+                <CalendarDays size={19} aria-hidden="true" />
+              </div>
+              <div className="holiday-calendar-grid">
+                {publicHolidays.map((holiday) => (
+                  <button
+                    key={`${holiday.date}-${holiday.name}`}
+                    className={`holiday-calendar-item ${holiday.date === holidayWorkForm.date ? "is-selected" : ""}`}
+                    type="button"
+                    onClick={() => handlePublicHolidaySelect(holiday.date)}
+                  >
+                    <span>{formatDateTr(holiday.date)}</span>
+                    <strong>{holiday.name}</strong>
+                    <small>{holiday.duration === "half" ? "Yarım gün" : "Tam gün"}</small>
+                  </button>
+                ))}
+              </div>
+            </section>
+
             <section className="workspace two-column">
               <section className="data-panel form-panel">
                 <form className="staff-form" onSubmit={(event) => void handleSaveHolidayWork(event)}>
@@ -2585,8 +2720,26 @@ function App() {
                   </label>
                   <label>
                     Tarih
-                    <input type="date" value={holidayWorkForm.date} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, date: event.target.value }))} />
+                    <input type="date" value={holidayWorkForm.date} onChange={(event) => handleHolidayWorkDateChange(event.target.value)} />
                   </label>
+                  <label>
+                    Resmi Tatil Seç
+                    <select value={selectedPublicHoliday?.date ?? ""} onChange={(event) => handlePublicHolidaySelect(event.target.value)}>
+                      <option value="">Tatil listesinden seç</option>
+                      {publicHolidays.map((holiday) => (
+                        <option key={`${holiday.date}-${holiday.name}`} value={holiday.date}>
+                          {formatDateTr(holiday.date)} - {holiday.name}{holiday.duration === "half" ? " (yarım gün)" : ""}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {selectedPublicHoliday && (
+                    <div className="holiday-match-card">
+                      <CalendarDays size={17} aria-hidden="true" />
+                      <span>{selectedPublicHoliday.name}</span>
+                      <strong>{selectedPublicHoliday.duration === "half" ? "Yarım gün" : "Tam gün"}</strong>
+                    </div>
+                  )}
                   <label>
                     Tatil Adı
                     <input value={holidayWorkForm.holidayName} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, holidayName: event.target.value }))} placeholder="Örn. Ramazan Bayramı" />
