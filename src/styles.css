@@ -411,6 +411,28 @@ label {
   font-weight: 700;
 }
 
+.checkbox-field {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: #fff;
+}
+
+.checkbox-field input {
+  width: 18px;
+  min-height: 18px;
+  accent-color: var(--teal);
+}
+
+.checkbox-field span {
+  font-weight: 800;
+}
+
 input,
 select,
 textarea {

@@ -422,7 +422,14 @@ function App() {
   const [bulkCheckInTime, setBulkCheckInTime] = useState(settings.shiftStart);
   const [bulkReason, setBulkReason] = useState("Toplu işlem");
   const [bulkTargetDepartment, setBulkTargetDepartment] = useState("");
-  const [newStaff, setNewStaff] = useState({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
+  const [newStaff, setNewStaff] = useState({
+    name: "",
+    department: "",
+    title: "",
+    startDate: todayIso(),
+    endDate: "",
+    showOnSignatureSheet: true,
+  });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [staffSearch, setStaffSearch] = useState("");
@@ -468,6 +475,10 @@ function App() {
   const [message, setMessage] = useState("");
 
   const activeStaff = useMemo(() => sortStaff(staff.filter((member) => member.active)), [staff]);
+  const signatureStaff = useMemo(
+    () => activeStaff.filter((member) => member.showOnSignatureSheet !== false),
+    [activeStaff],
+  );
   const staffById = useMemo(() => new Map(staff.map((member) => [member.id, member])), [staff]);
   const staffRankById = useMemo(
     () => new Map(sortStaff(staff).map((member, index) => [member.id, index])),
@@ -502,8 +513,8 @@ function App() {
     [bulkDepartment, bulkSearch, staff],
   );
   const printPages = useMemo(
-    () => chunk(activeStaff, Math.max(1, settings.rowsPerPrintSide)),
-    [activeStaff, settings.rowsPerPrintSide],
+    () => chunk(signatureStaff, Math.max(1, settings.rowsPerPrintSide)),
+    [signatureStaff, settings.rowsPerPrintSide],
   );
   const canUseApp = !firebaseConfigured || (Boolean(admin) && accessState === "allowed");
   const selectedDateIsSunday = isSundayIso(selectedDate);
@@ -1132,6 +1143,7 @@ function App() {
       department: newStaff.department.trim(),
       title: newStaff.title.trim(),
       active: true,
+      showOnSignatureSheet: newStaff.showOnSignatureSheet,
       startDate: newStaff.startDate,
       endDate: newStaff.endDate,
     };
@@ -1140,7 +1152,7 @@ function App() {
     try {
       await saveStaffMember(member);
       await saveAuditLog("Personel eklendi", member.name);
-      setNewStaff({ name: "", department: "", title: "", startDate: todayIso(), endDate: "" });
+      setNewStaff({ name: "", department: "", title: "", startDate: todayIso(), endDate: "", showOnSignatureSheet: true });
       await refreshStaff();
       await refreshAuditLogs();
     } catch {
@@ -1165,6 +1177,7 @@ function App() {
         name: editingStaff.name.trim(),
         department: editingStaff.department.trim(),
         title: editingStaff.title.trim(),
+        showOnSignatureSheet: editingStaff.showOnSignatureSheet !== false,
         startDate: editingStaff.startDate,
         endDate: editingStaff.endDate,
       });
@@ -1187,7 +1200,7 @@ function App() {
 
     const startOrder = staff.length ? Math.max(...staff.map((item) => item.order)) + 1 : 1;
     const members = rows.map((row, index) => {
-      const [name, department = "", title = "", startDate = "", endDate = ""] = row;
+      const [name, department = "", title = "", startDate = "", endDate = "", showOnSignatureSheet = "evet"] = row;
       return {
         id: crypto.randomUUID(),
         order: startOrder + index,
@@ -1195,6 +1208,7 @@ function App() {
         department,
         title,
         active: true,
+        showOnSignatureSheet: !["hayır", "hayir", "false", "0", "no"].includes(showOnSignatureSheet.toLocaleLowerCase("tr-TR")),
         startDate,
         endDate,
       } satisfies StaffMember;
@@ -1673,7 +1687,7 @@ function App() {
     const archive: PrintArchiveRecord = {
       id: `${selectedDate}_${Date.now()}`,
       date: selectedDate,
-      staffCount: activeStaff.length,
+      staffCount: signatureStaff.length,
       pageCount: printPages.length,
       rowsPerPrintSide: settings.rowsPerPrintSide,
       shiftStart: settings.shiftStart,
@@ -1684,7 +1698,7 @@ function App() {
     setBusy(true);
     try {
       await savePrintArchive(archive);
-      await saveAuditLog("İmza föyü arşivlendi", `${selectedDate} - ${activeStaff.length} personel`);
+      await saveAuditLog("İmza föyü arşivlendi", `${selectedDate} - ${signatureStaff.length} personel`);
       await refreshPrintArchives();
       await refreshAuditLogs();
       setMessage(`${formatDateTr(selectedDate)} imza föyü arşive eklendi.`);
@@ -2087,7 +2101,7 @@ function App() {
 
             <PrintPreviewOverview
               pageCount={printPages.length}
-              staffCount={activeStaff.length}
+              staffCount={signatureStaff.length}
               rowsPerPrintSide={settings.rowsPerPrintSide}
               shiftStart={settings.shiftStart}
               selectedDate={selectedDate}
@@ -3036,6 +3050,14 @@ function App() {
                     onChange={(event) => setNewStaff((previous) => ({ ...previous, endDate: event.target.value }))}
                   />
                 </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={newStaff.showOnSignatureSheet}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, showOnSignatureSheet: event.target.checked }))}
+                  />
+                  <span>İmza föyünde göster</span>
+                </label>
                 <button className="primary-action" type="submit" disabled={busy}>
                   <Plus size={18} aria-hidden="true" />
                   Ekle
@@ -3088,6 +3110,16 @@ function App() {
                       onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, endDate: event.target.value } : previous)}
                     />
                   </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={editingStaff.showOnSignatureSheet !== false}
+                      onChange={(event) =>
+                        setEditingStaff((previous) => previous ? { ...previous, showOnSignatureSheet: event.target.checked } : previous)
+                      }
+                    />
+                    <span>İmza föyünde göster</span>
+                  </label>
                   <div className="button-row">
                     <button className="primary-action" type="submit" disabled={busy}>
                       <Save size={18} aria-hidden="true" />
@@ -3108,7 +3140,7 @@ function App() {
                     value={importText}
                     onChange={(event) => setImportText(event.target.value)}
                     rows={9}
-                    placeholder="Ad Soyad;Departman;Ünvan;İşe Giriş;İşten Çıkış"
+                    placeholder="Ad Soyad;Departman;Ünvan;İşe Giriş;İşten Çıkış;İmza Föyünde Göster"
                   />
                 </label>
                 <label>
@@ -3161,6 +3193,7 @@ function App() {
                       <th>Departman</th>
                       <th>İşe Giriş</th>
                       <th>İşten Çıkış</th>
+                      <th>İmza Föyü</th>
                       <th>Durum</th>
                       <th aria-label="İşlem" />
                     </tr>
@@ -3178,6 +3211,11 @@ function App() {
                         <td>{member.department}</td>
                         <td>{member.startDate}</td>
                         <td>{member.endDate}</td>
+                        <td>
+                          <span className={`status-pill ${member.showOnSignatureSheet === false ? "status-empty" : "status-present"}`}>
+                            {member.showOnSignatureSheet === false ? "Gizli" : "Göster"}
+                          </span>
+                        </td>
                         <td>
                           <div className="row-actions">
                             <button className="icon-button" onClick={() => handleStartEditStaff(member)} title="Düzenle" aria-label={`${member.name} düzenle`}>

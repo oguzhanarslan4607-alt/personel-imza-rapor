@@ -11,6 +11,7 @@ export type StaffMember = {
   department: string;
   title: string;
   active: boolean;
+  showOnSignatureSheet?: boolean;
   startDate?: string;
   endDate?: string;
 };

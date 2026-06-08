@@ -11,6 +11,7 @@ export function createSampleStaff(count = 85, offset = 0): StaffMember[] {
       department: "",
       title: "",
       active: true,
+      showOnSignatureSheet: true,
     };
   });
 }
