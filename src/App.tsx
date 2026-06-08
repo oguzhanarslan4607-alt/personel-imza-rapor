@@ -600,6 +600,7 @@ function App() {
   const [incapacityForm, setIncapacityForm] = useState({
     id: "",
     staffId: "",
+    reportNumber: "",
     startDate: todayIso(),
     endDate: todayIso(),
     reason: "",
@@ -1571,6 +1572,7 @@ function App() {
     setIncapacityForm({
       id: "",
       staffId: activeStaff[0]?.id ?? "",
+      reportNumber: "",
       startDate: todayIso(),
       endDate: todayIso(),
       reason: "",
@@ -1591,6 +1593,7 @@ function App() {
     const record: IncapacityReportRecord = {
       id: incapacityForm.id || crypto.randomUUID(),
       staffId,
+      reportNumber: incapacityForm.reportNumber.trim(),
       startDate: incapacityForm.startDate,
       endDate: incapacityForm.endDate,
       dayCount: countCalendarDays(incapacityForm.startDate, incapacityForm.endDate),
@@ -1625,6 +1628,7 @@ function App() {
     setIncapacityForm({
       id: record.id,
       staffId: record.staffId,
+      reportNumber: record.reportNumber ?? "",
       startDate: record.startDate,
       endDate: record.endDate,
       reason: record.reason,
@@ -2741,6 +2745,10 @@ function App() {
                     </select>
                   </label>
                   <label>
+                    Rapor Numarası
+                    <input value={incapacityForm.reportNumber} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, reportNumber: event.target.value }))} placeholder="Rapor numarası" />
+                  </label>
+                  <label>
                     Başlangıç
                     <input type="date" value={incapacityForm.startDate} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, startDate: event.target.value }))} />
                   </label>
@@ -2799,6 +2807,7 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
+                        <th>Rapor No</th>
                         <th>Tarih</th>
                         <th>Gün</th>
                         <th>Neden</th>
@@ -2814,6 +2823,7 @@ function App() {
                             <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
                             <span>{staffById.get(record.staffId)?.department ?? ""}</span>
                           </td>
+                          <td>{record.reportNumber || "-"}</td>
                           <td>{record.startDate} - {record.endDate}</td>
                           <td>{record.dayCount}</td>
                           <td>{record.reason}</td>

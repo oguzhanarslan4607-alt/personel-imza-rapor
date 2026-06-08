@@ -65,6 +65,7 @@ export type AuditLogRecord = {
 export type IncapacityReportRecord = {
   id: string;
   staffId: string;
+  reportNumber?: string;
   startDate: string;
   endDate: string;
   dayCount: number;
