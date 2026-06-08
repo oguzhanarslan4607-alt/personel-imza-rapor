@@ -640,6 +640,42 @@ button:disabled {
   font-weight: 900;
 }
 
+.bulk-fixed-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.bulk-fixed-box > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.bulk-fixed-box span,
+.empty-inline {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.fixed-staff-checklist {
+  display: grid;
+  max-height: 180px;
+  gap: 6px;
+  overflow: auto;
+}
+
+.compact-month-filter {
+  min-width: 154px;
+}
+
+.compact-month-filter input {
+  min-height: 38px;
+}
+
 .table-scroll {
   width: 100%;
   overflow-x: auto;
@@ -1743,6 +1779,7 @@ button:disabled {
 :root[data-theme="dark"] .duplex-page,
 :root[data-theme="dark"] .holiday-calendar-item,
 :root[data-theme="dark"] .holiday-match-card,
+:root[data-theme="dark"] .bulk-fixed-box,
 :root[data-theme="dark"] .firebase-card,
 :root[data-theme="dark"] .edit-form {
   color: var(--ink);

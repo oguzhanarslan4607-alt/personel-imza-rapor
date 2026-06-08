@@ -391,6 +391,7 @@ function uniqueValues(values: string[]) {
 }
 
 function formatMonthTr(month: string) {
+  if (!month) return "";
   return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(`${month}-01T12:00:00`));
 }
 
@@ -585,6 +586,8 @@ function App() {
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [printMode, setPrintMode] = useState<PrintMode>("signature");
+  const [holidayReportMonth, setHolidayReportMonth] = useState(todayIso().slice(0, 7));
+  const [excludedFixedHolidayStaffIds, setExcludedFixedHolidayStaffIds] = useState<string[]>([]);
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
   const [importText, setImportText] = useState("");
@@ -841,16 +844,21 @@ function App() {
     }),
     [incapacityReports],
   );
+  const holidayWorkRowsForMonth = useMemo(
+    () => holidayWorkRecords.filter((record) => record.date.startsWith(holidayReportMonth)),
+    [holidayReportMonth, holidayWorkRecords],
+  );
   const holidayWorkStats = useMemo(
     () => ({
-      total: holidayWorkRecords.length,
-      hours: Math.round(holidayWorkRecords.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
-      leaveCompensation: holidayWorkRecords.filter((record) => record.compensationType === "leave").length,
-      paidCompensation: holidayWorkRecords.filter((record) => record.compensationType === "paid").length,
+      total: holidayWorkRowsForMonth.length,
+      hours: Math.round(holidayWorkRowsForMonth.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
+      leaveCompensation: holidayWorkRowsForMonth.filter((record) => record.compensationType === "leave").length,
+      paidCompensation: holidayWorkRowsForMonth.filter((record) => record.compensationType === "paid").length,
     }),
-    [holidayWorkRecords],
+    [holidayWorkRowsForMonth],
   );
-  const holidayWorkGroups = useMemo(() => groupHolidayWorkRecords(holidayWorkRecords, staffById), [holidayWorkRecords, staffById]);
+  const holidayWorkGroups = useMemo(() => groupHolidayWorkRecords(holidayWorkRowsForMonth, staffById), [holidayWorkRowsForMonth, staffById]);
+  const fixedHolidayStaff = useMemo(() => activeStaff.filter((member) => member.fixedStaff), [activeStaff]);
   const holidayWorkYear = Number(holidayWorkForm.date.slice(0, 4)) || getCurrentYear();
   const publicHolidays = useMemo(() => getTurkiyePublicHolidays(holidayWorkYear), [holidayWorkYear]);
   const selectedPublicHoliday = useMemo(
@@ -1658,6 +1666,7 @@ function App() {
 
   function handleHolidayWorkDateChange(date: string) {
     const publicHoliday = getTurkiyePublicHolidays(Number(date.slice(0, 4)) || getCurrentYear()).find((holiday) => holiday.date === date);
+    setHolidayReportMonth(date.slice(0, 7));
     setHolidayWorkForm((previous) => ({
       ...previous,
       date,
@@ -1669,6 +1678,7 @@ function App() {
     const publicHoliday = publicHolidays.find((holiday) => holiday.date === date);
     if (!publicHoliday) return;
 
+    setHolidayReportMonth(publicHoliday.date.slice(0, 7));
     setHolidayWorkForm((previous) => ({
       ...previous,
       date: publicHoliday.date,
@@ -1714,6 +1724,63 @@ function App() {
       setMessage("Resmi tatil çalışması kaydedildi.");
     } catch {
       setMessage("Resmi tatil çalışması kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleBulkAddFixedHolidayWork() {
+    if (!fixedHolidayStaff.length) {
+      setMessage("Toplu ekleme için sabit personel bulunmuyor.");
+      return;
+    }
+
+    const selectedStaff = fixedHolidayStaff.filter((member) => !excludedFixedHolidayStaffIds.includes(member.id));
+    if (!selectedStaff.length) {
+      setMessage("Toplu ekleme için en az bir sabit personel bırakın.");
+      return;
+    }
+
+    const hours = calculateWorkHours(holidayWorkForm.startTime, holidayWorkForm.endTime);
+    if (!hours) {
+      setMessage("Toplu resmi tatil çalışması için geçerli giriş ve çıkış saati girin.");
+      return;
+    }
+
+    const existingKeys = new Set(holidayWorkRecords.map((record) => `${record.date}_${record.staffId}`));
+    const now = new Date().toISOString();
+    const records: HolidayWorkRecord[] = selectedStaff
+      .filter((member) => !existingKeys.has(`${holidayWorkForm.date}_${member.id}`))
+      .map((member) => ({
+        id: `${holidayWorkForm.date}_${member.id}_holiday-work`,
+        staffId: member.id,
+        date: holidayWorkForm.date,
+        holidayName: holidayWorkForm.holidayName.trim() || selectedPublicHoliday?.name || "Resmi Tatil",
+        startTime: holidayWorkForm.startTime,
+        endTime: holidayWorkForm.endTime,
+        hours,
+        compensationType: holidayWorkForm.compensationType,
+        notes: holidayWorkForm.notes.trim(),
+        createdAt: now,
+        updatedAt: now,
+      }));
+
+    if (!records.length) {
+      setMessage("Seçili tarih için sabit personeller zaten eklenmiş.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await Promise.all(records.map((record) => saveHolidayWorkRecord(record)));
+      await saveAuditLog("Sabit personel resmi tatil toplu eklendi", `${holidayWorkForm.date} - ${records.length} personel`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setExcludedFixedHolidayStaffIds([]);
+      setHolidayReportMonth(holidayWorkForm.date.slice(0, 7));
+      setMessage(`${records.length} sabit personel resmi tatil çalışmasına eklendi.`);
+    } catch {
+      setMessage("Sabit personeller toplu eklenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -1993,8 +2060,8 @@ function App() {
   }
 
   function handleExportHolidayWorkExcel() {
-    downloadExcelFile(`resmi-tatil-calisan-raporu-${holidayWorkYear}.xls`, [
-      { title: `${holidayWorkYear} Resmi Tatil Çalışan Raporu`, rows: getHolidayWorkExportRows() },
+    downloadExcelFile(`resmi-tatil-calisan-raporu-${holidayReportMonth}.xls`, [
+      { title: `${formatMonthTr(holidayReportMonth)} Resmi Tatil Çalışan Raporu`, rows: getHolidayWorkExportRows() },
     ]);
   }
 
@@ -2873,6 +2940,36 @@ function App() {
                     Not
                     <textarea value={holidayWorkForm.notes} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
                   </label>
+                  <div className="bulk-fixed-box">
+                    <div>
+                      <strong>Sabit personeli toplu ekle</strong>
+                      <span>Çalışmayanları işaretle; kalan sabit personeller seçili bayrama tek seferde eklenir.</span>
+                    </div>
+                    {fixedHolidayStaff.length ? (
+                      <div className="fixed-staff-checklist">
+                        {fixedHolidayStaff.map((member) => (
+                          <label className="checkbox-field" key={member.id}>
+                            <input
+                              type="checkbox"
+                              checked={excludedFixedHolidayStaffIds.includes(member.id)}
+                              onChange={(event) =>
+                                setExcludedFixedHolidayStaffIds((previous) =>
+                                  event.target.checked ? [...previous, member.id] : previous.filter((id) => id !== member.id),
+                                )
+                              }
+                            />
+                            <span>{member.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ) : (
+                      <span className="empty-inline">Sabit personel olarak işaretlenmiş personel yok.</span>
+                    )}
+                    <button className="secondary-action" type="button" onClick={() => void handleBulkAddFixedHolidayWork()} disabled={busy || !fixedHolidayStaff.length}>
+                      <Users size={18} aria-hidden="true" />
+                      Sabitleri Toplu Ekle
+                    </button>
+                  </div>
                   <div className="button-row">
                     <button className="primary-action" type="submit" disabled={busy}>
                       <Save size={18} aria-hidden="true" />
@@ -2892,14 +2989,18 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h2>Resmi Tatil Çalışmaları</h2>
-                    <span>Çalışma saati ve ödeme/izin karşılığı</span>
+                    <span>{formatMonthTr(holidayReportMonth)} çalışma saati ve ödeme/izin karşılığı</span>
                   </div>
                   <div className="button-row">
-                    <button className="secondary-action" onClick={handleExportHolidayWorkExcel} disabled={!holidayWorkRecords.length}>
+                    <label className="compact-month-filter">
+                      Ay
+                      <input type="month" value={holidayReportMonth} onChange={(event) => setHolidayReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                    </label>
+                    <button className="secondary-action" onClick={handleExportHolidayWorkExcel} disabled={!holidayWorkRowsForMonth.length}>
                       <FileSpreadsheet size={18} aria-hidden="true" />
                       Excel
                     </button>
-                    <button className="secondary-action" onClick={handlePrintHolidayWorkReport} disabled={!holidayWorkRecords.length}>
+                    <button className="secondary-action" onClick={handlePrintHolidayWorkReport} disabled={!holidayWorkRowsForMonth.length}>
                       <FileDown size={18} aria-hidden="true" />
                       PDF
                     </button>
@@ -2959,7 +3060,7 @@ function App() {
                     </tbody>
                   </table>
                 </div>
-                {!holidayWorkRecords.length && <div className="empty-state">Resmi tatil çalışma kaydı bulunmuyor.</div>}
+                {!holidayWorkRowsForMonth.length && <div className="empty-state">Seçili ayda resmi tatil çalışma kaydı bulunmuyor.</div>}
               </section>
             </section>
           </main>
@@ -3786,7 +3887,7 @@ function App() {
             groups={holidayWorkGroups}
             staffById={staffById}
             stats={holidayWorkStats}
-            year={holidayWorkYear}
+            reportMonth={holidayReportMonth}
           />
         ) : (
           printPages.map((pageStaff, index) => (
@@ -3810,12 +3911,12 @@ function HolidayWorkPrintReport({
   groups,
   staffById,
   stats,
-  year,
+  reportMonth,
 }: {
   groups: HolidayWorkGroup[];
   staffById: Map<string, StaffMember>;
   stats: { total: number; hours: number; leaveCompensation: number; paidCompensation: number };
-  year: number;
+  reportMonth: string;
 }) {
   const sortedGroups = [...groups].sort((a, b) => a.month.localeCompare(b.month) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
 
@@ -3823,7 +3924,7 @@ function HolidayWorkPrintReport({
     <article className="holiday-report-page">
       <header className="holiday-report-header">
         <div>
-          <strong>{year} Resmi Tatil Çalışan Raporu</strong>
+          <strong>{formatMonthTr(reportMonth)} Resmi Tatil Çalışan Raporu</strong>
           <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
         </div>
         <CalendarDays size={26} aria-hidden="true" />
