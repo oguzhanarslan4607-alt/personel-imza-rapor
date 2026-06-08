@@ -12,6 +12,7 @@ export type StaffMember = {
   title: string;
   active: boolean;
   showOnSignatureSheet?: boolean;
+  fixedStaff?: boolean;
   startDate?: string;
   endDate?: string;
 };

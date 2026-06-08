@@ -12,6 +12,7 @@ export function createSampleStaff(count = 85, offset = 0): StaffMember[] {
       title: "",
       active: true,
       showOnSignatureSheet: true,
+      fixedStaff: false,
     };
   });
 }

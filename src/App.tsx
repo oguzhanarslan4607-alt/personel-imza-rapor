@@ -429,6 +429,7 @@ function App() {
     startDate: todayIso(),
     endDate: "",
     showOnSignatureSheet: true,
+    fixedStaff: false,
   });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
@@ -503,6 +504,8 @@ function App() {
       ),
     [staff, staffDepartment, staffSearch],
   );
+  const regularStaffList = useMemo(() => filteredStaff.filter((member) => !member.fixedStaff), [filteredStaff]);
+  const fixedStaffList = useMemo(() => filteredStaff.filter((member) => member.fixedStaff), [filteredStaff]);
   const bulkVisibleStaff = useMemo(
     () =>
       sortStaff(staff).filter(
@@ -1144,6 +1147,7 @@ function App() {
       title: newStaff.title.trim(),
       active: true,
       showOnSignatureSheet: newStaff.showOnSignatureSheet,
+      fixedStaff: newStaff.fixedStaff,
       startDate: newStaff.startDate,
       endDate: newStaff.endDate,
     };
@@ -1152,7 +1156,15 @@ function App() {
     try {
       await saveStaffMember(member);
       await saveAuditLog("Personel eklendi", member.name);
-      setNewStaff({ name: "", department: "", title: "", startDate: todayIso(), endDate: "", showOnSignatureSheet: true });
+      setNewStaff({
+        name: "",
+        department: "",
+        title: "",
+        startDate: todayIso(),
+        endDate: "",
+        showOnSignatureSheet: true,
+        fixedStaff: false,
+      });
       await refreshStaff();
       await refreshAuditLogs();
     } catch {
@@ -1178,6 +1190,7 @@ function App() {
         department: editingStaff.department.trim(),
         title: editingStaff.title.trim(),
         showOnSignatureSheet: editingStaff.showOnSignatureSheet !== false,
+        fixedStaff: Boolean(editingStaff.fixedStaff),
         startDate: editingStaff.startDate,
         endDate: editingStaff.endDate,
       });
@@ -1200,7 +1213,7 @@ function App() {
 
     const startOrder = staff.length ? Math.max(...staff.map((item) => item.order)) + 1 : 1;
     const members = rows.map((row, index) => {
-      const [name, department = "", title = "", startDate = "", endDate = "", showOnSignatureSheet = "evet"] = row;
+      const [name, department = "", title = "", startDate = "", endDate = "", showOnSignatureSheet = "evet", fixedStaff = "hayir"] = row;
       return {
         id: crypto.randomUUID(),
         order: startOrder + index,
@@ -1209,6 +1222,7 @@ function App() {
         title,
         active: true,
         showOnSignatureSheet: !["hayır", "hayir", "false", "0", "no"].includes(showOnSignatureSheet.toLocaleLowerCase("tr-TR")),
+        fixedStaff: ["evet", "true", "1", "yes", "sabit"].includes(fixedStaff.toLocaleLowerCase("tr-TR")),
         startDate,
         endDate,
       } satisfies StaffMember;
@@ -1801,6 +1815,79 @@ function App() {
       />
     );
   }
+
+  const renderStaffTable = (members: StaffMember[], title: string, emptyText: string) => (
+    <div className="staff-list-block">
+      <div className="panel-heading compact-heading">
+        <div>
+          <h2>{title}</h2>
+          <span>{members.length} personel</span>
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Personel</th>
+              <th>Departman</th>
+              <th>İşe Giriş</th>
+              <th>İşten Çıkış</th>
+              <th>İmza Föyü</th>
+              <th>Durum</th>
+              <th aria-label="İşlem" />
+            </tr>
+          </thead>
+          <tbody>
+            {members.length === 0 && (
+              <tr>
+                <td colSpan={8} className="empty-cell">{emptyText}</td>
+              </tr>
+            )}
+            {members.map((member, index) => (
+              <tr key={member.id} className={!member.active ? "is-muted" : ""}>
+                <td className="number-cell">{index + 1}</td>
+                <td>
+                  <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
+                    <strong>{member.name}</strong>
+                    <span>{member.title}</span>
+                  </button>
+                </td>
+                <td>{member.department}</td>
+                <td>{member.startDate}</td>
+                <td>{member.endDate}</td>
+                <td>
+                  <span className={`status-pill ${member.showOnSignatureSheet === false ? "status-empty" : "status-present"}`}>
+                    {member.showOnSignatureSheet === false ? "Gizli" : "Göster"}
+                  </span>
+                </td>
+                <td>
+                  <div className="row-actions">
+                    <button className="icon-button" onClick={() => handleStartEditStaff(member)} title="Düzenle" aria-label={`${member.name} düzenle`}>
+                      <Edit3 size={17} />
+                    </button>
+                    <button className="status-toggle" onClick={() => void handleToggleStaff(member)}>
+                      {member.active ? "Aktif" : "Pasif"}
+                    </button>
+                  </div>
+                </td>
+                <td>
+                  <button
+                    className="icon-button danger"
+                    onClick={() => void handleDeleteStaff(member)}
+                    title="Personeli sil"
+                    aria-label={`${member.name} personelini sil`}
+                  >
+                    <Trash2 size={17} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -3058,6 +3145,14 @@ function App() {
                   />
                   <span>İmza föyünde göster</span>
                 </label>
+                <label className="checkbox-field">
+                  <input
+                    type="checkbox"
+                    checked={newStaff.fixedStaff}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, fixedStaff: event.target.checked }))}
+                  />
+                  <span>Sabit personel</span>
+                </label>
                 <button className="primary-action" type="submit" disabled={busy}>
                   <Plus size={18} aria-hidden="true" />
                   Ekle
@@ -3120,6 +3215,16 @@ function App() {
                     />
                     <span>İmza föyünde göster</span>
                   </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(editingStaff.fixedStaff)}
+                      onChange={(event) =>
+                        setEditingStaff((previous) => previous ? { ...previous, fixedStaff: event.target.checked } : previous)
+                      }
+                    />
+                    <span>Sabit personel</span>
+                  </label>
                   <div className="button-row">
                     <button className="primary-action" type="submit" disabled={busy}>
                       <Save size={18} aria-hidden="true" />
@@ -3140,7 +3245,7 @@ function App() {
                     value={importText}
                     onChange={(event) => setImportText(event.target.value)}
                     rows={9}
-                    placeholder="Ad Soyad;Departman;Ünvan;İşe Giriş;İşten Çıkış;İmza Föyünde Göster"
+                    placeholder="Ad Soyad;Departman;Unvan;Ise Giris;Isten Cikis;Imza Foyunde Goster;Sabit Personel"
                   />
                 </label>
                 <label>
@@ -3184,6 +3289,12 @@ function App() {
                   </select>
                 </label>
               </div>
+              <div className="panel-heading compact-heading">
+                <div>
+                  <h2>Personel Listesi</h2>
+                  <span>{regularStaffList.length} personel</span>
+                </div>
+              </div>
               <div className="table-scroll">
                 <table className="data-table">
                   <thead>
@@ -3199,7 +3310,12 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {filteredStaff.map((member, index) => (
+                    {regularStaffList.length === 0 && (
+                      <tr>
+                        <td colSpan={8} className="empty-cell">Bu filtrede normal personel bulunamadı.</td>
+                      </tr>
+                    )}
+                    {regularStaffList.map((member, index) => (
                       <tr key={member.id} className={!member.active ? "is-muted" : ""}>
                         <td className="number-cell">{index + 1}</td>
                         <td>
@@ -3241,6 +3357,7 @@ function App() {
                   </tbody>
                 </table>
               </div>
+              {renderStaffTable(fixedStaffList, "Sabit Personel", "Bu filtrede sabit personel bulunamadı.")}
             </section>
           </main>
         )}

@@ -559,6 +559,16 @@ button:disabled {
   overflow: hidden;
 }
 
+.staff-list-block {
+  margin-top: 18px;
+}
+
+.empty-cell {
+  color: var(--muted);
+  font-weight: 800;
+  text-align: center;
+}
+
 .table-scroll {
   width: 100%;
   overflow-x: auto;
