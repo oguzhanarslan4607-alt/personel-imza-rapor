@@ -35,5 +35,17 @@ service cloud.firestore {
     match /auditLogs/{logId} {
       allow read, write: if isAdmin();
     }
+
+    match /incapacityReports/{reportId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /holidayWork/{workId} {
+      allow read, write: if isAdmin();
+    }
+
+    match /annualLeave/{leaveId} {
+      allow read, write: if isAdmin();
+    }
   }
 }

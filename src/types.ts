@@ -1,4 +1,8 @@
 export type AttendanceStatus = "present" | "late" | "absent" | "excused";
+export type IncapacityStatus = "active" | "completed" | "cancelled";
+export type HolidayCompensationType = "paid" | "leave" | "none";
+export type AnnualLeaveType = "annual" | "excuse" | "unpaid" | "other";
+export type LeaveStatus = "planned" | "used" | "cancelled";
 
 export type StaffMember = {
   id: string;
@@ -54,6 +58,48 @@ export type AuditLogRecord = {
   detail: string;
   createdAt: string;
   createdBy?: string | null;
+};
+
+export type IncapacityReportRecord = {
+  id: string;
+  staffId: string;
+  startDate: string;
+  endDate: string;
+  dayCount: number;
+  reason: string;
+  status: IncapacityStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type HolidayWorkRecord = {
+  id: string;
+  staffId: string;
+  date: string;
+  holidayName: string;
+  startTime: string;
+  endTime: string;
+  hours: number;
+  compensationType: HolidayCompensationType;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type AnnualLeaveRecord = {
+  id: string;
+  staffId: string;
+  year: number;
+  leaveType: AnnualLeaveType;
+  startDate: string;
+  endDate: string;
+  usedDays: number;
+  entitlementDays: number;
+  status: LeaveStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
 };
 
 export type AppSettings = {

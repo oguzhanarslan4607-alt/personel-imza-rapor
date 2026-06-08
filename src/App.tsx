@@ -40,8 +40,11 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createSampleStaff } from "./data/sampleStaff";
 import { addMinutesToTime, compareTimes, formatDateTr, monthStartIso, todayIso, toLocalIsoDate } from "./lib/date";
 import {
+  deleteAnnualLeaveRecord,
   deleteDeletedAttendance,
   deleteAttendanceRecord,
+  deleteHolidayWorkRecord,
+  deleteIncapacityReport,
   deleteStaffMember,
   firebaseConfigured,
   firebaseProjectId,
@@ -49,16 +52,22 @@ import {
   loadAuditLogs,
   loadAttendanceByDate,
   loadAttendanceRange,
+  loadAnnualLeaveRecords,
   loadDayLock,
   loadDeletedAttendance,
+  loadHolidayWorkRecords,
+  loadIncapacityReports,
   loadPrintArchives,
   loadStaff,
   makeAttendanceId,
   observeAdminAuth,
   saveAuditLog,
   saveAttendanceRecord,
+  saveAnnualLeaveRecord,
   saveDayLock,
   saveDeletedAttendance,
+  saveHolidayWorkRecord,
+  saveIncapacityReport,
   savePrintArchive,
   saveStaffMember,
   saveStaffMembers,
@@ -68,17 +77,34 @@ import {
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
 import type {
+  AnnualLeaveRecord,
+  AnnualLeaveType,
   AppSettings,
   AttendanceRecord,
   AttendanceStatus,
   AuditLogRecord,
   DayLockRecord,
   DeletedAttendanceRecord,
+  HolidayCompensationType,
+  HolidayWorkRecord,
+  IncapacityReportRecord,
+  IncapacityStatus,
+  LeaveStatus,
   PrintArchiveRecord,
   StaffMember,
 } from "./types";
 
-type TabKey = "daily" | "print" | "reports" | "profiles" | "bulk" | "staff" | "settings";
+type TabKey =
+  | "daily"
+  | "print"
+  | "reports"
+  | "incapacity"
+  | "holidayWork"
+  | "annualLeave"
+  | "profiles"
+  | "bulk"
+  | "staff"
+  | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
 type DraftRecord = {
   checkInTime: string;
@@ -109,6 +135,9 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "daily", label: "Günlük Kayıt", icon: CalendarCheck },
   { key: "print", label: "İmza Föyü", icon: Printer },
   { key: "reports", label: "Raporlar", icon: BarChart3 },
+  { key: "incapacity", label: "İş Göremezlik Raporu", icon: FileSpreadsheet },
+  { key: "holidayWork", label: "Resmi Tatil Çalışan", icon: CalendarDays },
+  { key: "annualLeave", label: "Yıllık İzin Takibi", icon: CalendarCheck },
   { key: "profiles", label: "Profil", icon: UserRound },
   { key: "bulk", label: "Toplu İşlem", icon: CheckSquare },
   { key: "staff", label: "Personel", icon: Users },
@@ -120,6 +149,27 @@ const statusLabels: Record<AttendanceStatus, string> = {
   late: "Geç",
   absent: "Gelmedi",
   excused: "İzinli",
+};
+const incapacityStatusLabels: Record<IncapacityStatus, string> = {
+  active: "Aktif",
+  completed: "Bitti",
+  cancelled: "İptal",
+};
+const holidayCompensationLabels: Record<HolidayCompensationType, string> = {
+  paid: "Ücret",
+  leave: "İzin karşılığı",
+  none: "Belirtilmedi",
+};
+const annualLeaveTypeLabels: Record<AnnualLeaveType, string> = {
+  annual: "Yıllık izin",
+  excuse: "Mazeret",
+  unpaid: "Ücretsiz izin",
+  other: "Diğer",
+};
+const leaveStatusLabels: Record<LeaveStatus, string> = {
+  planned: "Planlandı",
+  used: "Kullanıldı",
+  cancelled: "İptal",
 };
 
 const emptyDraft: DraftRecord = {
@@ -203,6 +253,43 @@ function isSundayIso(value: string) {
 function monthEndIso(value: string) {
   const base = value ? new Date(`${value}T12:00:00`) : new Date();
   return toLocalIsoDate(new Date(base.getFullYear(), base.getMonth() + 1, 0));
+}
+
+function parseIsoDate(value: string) {
+  return value ? new Date(`${value}T12:00:00`) : null;
+}
+
+function countCalendarDays(startDate: string, endDate: string) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  if (!start || !end || end < start) return 0;
+  return Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+}
+
+function countLeaveDays(startDate: string, endDate: string) {
+  const start = parseIsoDate(startDate);
+  const end = parseIsoDate(endDate);
+  if (!start || !end || end < start) return 0;
+
+  let count = 0;
+  const cursor = new Date(start);
+  while (cursor <= end) {
+    if (cursor.getDay() !== 0) count += 1;
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return count;
+}
+
+function calculateWorkHours(startTime: string, endTime: string) {
+  if (!startTime || !endTime) return 0;
+  const start = timeToMinutes(startTime);
+  let end = timeToMinutes(endTime);
+  if (end <= start) end += 24 * 60;
+  return Math.round(((end - start) / 60) * 100) / 100;
+}
+
+function getCurrentYear() {
+  return Number(todayIso().slice(0, 4));
 }
 
 function getLateTone(minutes: number) {
@@ -344,6 +431,39 @@ function App() {
   const [printArchives, setPrintArchives] = useState<PrintArchiveRecord[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLogRecord[]>([]);
   const [deletedAttendance, setDeletedAttendance] = useState<DeletedAttendanceRecord[]>([]);
+  const [incapacityReports, setIncapacityReports] = useState<IncapacityReportRecord[]>([]);
+  const [holidayWorkRecords, setHolidayWorkRecords] = useState<HolidayWorkRecord[]>([]);
+  const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
+  const [incapacityForm, setIncapacityForm] = useState({
+    id: "",
+    staffId: "",
+    startDate: todayIso(),
+    endDate: todayIso(),
+    reason: "",
+    status: "active" as IncapacityStatus,
+    notes: "",
+  });
+  const [holidayWorkForm, setHolidayWorkForm] = useState({
+    id: "",
+    staffId: "",
+    date: todayIso(),
+    holidayName: "",
+    startTime: settings.shiftStart,
+    endTime: "17:30",
+    compensationType: "paid" as HolidayCompensationType,
+    notes: "",
+  });
+  const [annualLeaveForm, setAnnualLeaveForm] = useState({
+    id: "",
+    staffId: "",
+    year: getCurrentYear(),
+    leaveType: "annual" as AnnualLeaveType,
+    startDate: todayIso(),
+    endDate: todayIso(),
+    entitlementDays: 14,
+    status: "planned" as LeaveStatus,
+    notes: "",
+  });
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -547,6 +667,71 @@ function App() {
         .slice(0, 5),
     [reportSummaryRows],
   );
+  const incapacityStats = useMemo(
+    () => ({
+      total: incapacityReports.length,
+      active: incapacityReports.filter((record) => record.status === "active").length,
+      days: incapacityReports.reduce((sum, record) => sum + record.dayCount, 0),
+    }),
+    [incapacityReports],
+  );
+  const holidayWorkStats = useMemo(
+    () => ({
+      total: holidayWorkRecords.length,
+      hours: Math.round(holidayWorkRecords.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
+      leaveCompensation: holidayWorkRecords.filter((record) => record.compensationType === "leave").length,
+      paidCompensation: holidayWorkRecords.filter((record) => record.compensationType === "paid").length,
+    }),
+    [holidayWorkRecords],
+  );
+  const annualLeaveYear = annualLeaveForm.year || getCurrentYear();
+  const annualLeaveRowsForYear = useMemo(
+    () => annualLeaveRecords.filter((record) => record.year === annualLeaveYear),
+    [annualLeaveRecords, annualLeaveYear],
+  );
+  const annualLeaveSummaries = useMemo(() => {
+    const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
+
+    annualLeaveRowsForYear.forEach((record) => {
+      const member = staffById.get(record.staffId);
+      if (!member) return;
+
+      const current =
+        summary.get(record.staffId) ??
+        {
+          staff: member,
+          entitlement: record.entitlementDays || annualLeaveForm.entitlementDays,
+          used: 0,
+          planned: 0,
+          remaining: 0,
+        };
+
+      current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0, annualLeaveForm.entitlementDays || 0);
+      if (record.leaveType === "annual" && record.status !== "cancelled") {
+        if (record.status === "used") current.used += record.usedDays;
+        if (record.status === "planned") current.planned += record.usedDays;
+      }
+      current.remaining = Math.max(0, current.entitlement - current.used - current.planned);
+      summary.set(record.staffId, current);
+    });
+
+    return Array.from(summary.values()).sort(
+      (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
+    );
+  }, [annualLeaveForm.entitlementDays, annualLeaveRowsForYear, staffById, staffRankById]);
+  const annualLeaveStats = useMemo(
+    () => ({
+      records: annualLeaveRowsForYear.length,
+      used: annualLeaveRowsForYear
+        .filter((record) => record.leaveType === "annual" && record.status === "used")
+        .reduce((sum, record) => sum + record.usedDays, 0),
+      planned: annualLeaveRowsForYear
+        .filter((record) => record.leaveType === "annual" && record.status === "planned")
+        .reduce((sum, record) => sum + record.usedDays, 0),
+      remaining: annualLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
+    }),
+    [annualLeaveRowsForYear, annualLeaveSummaries],
+  );
 
   async function refreshStaff() {
     setBusy(true);
@@ -612,6 +797,23 @@ function App() {
     }
   }
 
+  async function refreshHrRecords() {
+    try {
+      const [reports, holidayWork, annualLeave] = await Promise.all([
+        loadIncapacityReports(),
+        loadHolidayWorkRecords(),
+        loadAnnualLeaveRecords(),
+      ]);
+      setIncapacityReports(reports);
+      setHolidayWorkRecords(holidayWork);
+      setAnnualLeaveRecords(annualLeave);
+    } catch {
+      setIncapacityReports([]);
+      setHolidayWorkRecords([]);
+      setAnnualLeaveRecords([]);
+    }
+  }
+
   useEffect(() => {
     if (!firebaseConfigured) return;
 
@@ -650,6 +852,9 @@ function App() {
           setDayLock(null);
           setAuditLogs([]);
           setDeletedAttendance([]);
+          setIncapacityReports([]);
+          setHolidayWorkRecords([]);
+          setAnnualLeaveRecords([]);
         });
     });
   }, []);
@@ -674,6 +879,7 @@ function App() {
     void refreshPrintArchives();
     void refreshAuditLogs();
     void refreshDeletedAttendance();
+    void refreshHrRecords();
   }, [canUseApp, admin?.uid]);
 
   useEffect(() => {
@@ -685,6 +891,14 @@ function App() {
   useEffect(() => {
     setBulkSelectedIds((previous) => previous.filter((id) => staffById.has(id)));
   }, [staffById]);
+
+  useEffect(() => {
+    if (!activeStaff.length) return;
+    const fallbackId = activeStaff[0].id;
+    setIncapacityForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+    setHolidayWorkForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+    setAnnualLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+  }, [activeStaff, staffById]);
 
   function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
@@ -1153,6 +1367,262 @@ function App() {
       setMessage(`${selectedMembers.length} personel ${active ? "aktife alındı" : "pasife alındı"}.`);
     } catch {
       setMessage("Toplu personel durumu güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetIncapacityForm() {
+    setIncapacityForm({
+      id: "",
+      staffId: activeStaff[0]?.id ?? "",
+      startDate: todayIso(),
+      endDate: todayIso(),
+      reason: "",
+      status: "active",
+      notes: "",
+    });
+  }
+
+  async function handleSaveIncapacityReport(event: FormEvent) {
+    event.preventDefault();
+    const staffId = incapacityForm.staffId || activeStaff[0]?.id || "";
+    if (!staffId) {
+      setMessage("İş göremezlik raporu için personel seçin.");
+      return;
+    }
+
+    const existing = incapacityReports.find((record) => record.id === incapacityForm.id);
+    const record: IncapacityReportRecord = {
+      id: incapacityForm.id || crypto.randomUUID(),
+      staffId,
+      startDate: incapacityForm.startDate,
+      endDate: incapacityForm.endDate,
+      dayCount: countCalendarDays(incapacityForm.startDate, incapacityForm.endDate),
+      reason: incapacityForm.reason.trim(),
+      status: incapacityForm.status,
+      notes: incapacityForm.notes.trim(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!record.dayCount) {
+      setMessage("İş göremezlik raporu için geçerli tarih aralığı girin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveIncapacityReport(record);
+      await saveAuditLog(incapacityForm.id ? "İş göremezlik raporu güncellendi" : "İş göremezlik raporu eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      resetIncapacityForm();
+      setMessage("İş göremezlik raporu kaydedildi.");
+    } catch {
+      setMessage("İş göremezlik raporu kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleEditIncapacityReport(record: IncapacityReportRecord) {
+    setIncapacityForm({
+      id: record.id,
+      staffId: record.staffId,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      reason: record.reason,
+      status: record.status,
+      notes: record.notes,
+    });
+  }
+
+  async function handleDeleteIncapacityReport(record: IncapacityReportRecord) {
+    if (!window.confirm("İş göremezlik raporu silinsin mi?")) return;
+    setBusy(true);
+    try {
+      await deleteIncapacityReport(record.id);
+      await saveAuditLog("İş göremezlik raporu silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setMessage("İş göremezlik raporu silindi.");
+    } catch {
+      setMessage("İş göremezlik raporu silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetHolidayWorkForm() {
+    setHolidayWorkForm({
+      id: "",
+      staffId: activeStaff[0]?.id ?? "",
+      date: todayIso(),
+      holidayName: "",
+      startTime: settings.shiftStart,
+      endTime: "17:30",
+      compensationType: "paid",
+      notes: "",
+    });
+  }
+
+  async function handleSaveHolidayWork(event: FormEvent) {
+    event.preventDefault();
+    const staffId = holidayWorkForm.staffId || activeStaff[0]?.id || "";
+    if (!staffId) {
+      setMessage("Resmi tatil çalışması için personel seçin.");
+      return;
+    }
+
+    const existing = holidayWorkRecords.find((record) => record.id === holidayWorkForm.id);
+    const record: HolidayWorkRecord = {
+      id: holidayWorkForm.id || crypto.randomUUID(),
+      staffId,
+      date: holidayWorkForm.date,
+      holidayName: holidayWorkForm.holidayName.trim() || "Resmi Tatil",
+      startTime: holidayWorkForm.startTime,
+      endTime: holidayWorkForm.endTime,
+      hours: calculateWorkHours(holidayWorkForm.startTime, holidayWorkForm.endTime),
+      compensationType: holidayWorkForm.compensationType,
+      notes: holidayWorkForm.notes.trim(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!record.hours) {
+      setMessage("Resmi tatil çalışması için geçerli giriş ve çıkış saati girin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveHolidayWorkRecord(record);
+      await saveAuditLog(holidayWorkForm.id ? "Resmi tatil çalışması güncellendi" : "Resmi tatil çalışması eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      resetHolidayWorkForm();
+      setMessage("Resmi tatil çalışması kaydedildi.");
+    } catch {
+      setMessage("Resmi tatil çalışması kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleEditHolidayWork(record: HolidayWorkRecord) {
+    setHolidayWorkForm({
+      id: record.id,
+      staffId: record.staffId,
+      date: record.date,
+      holidayName: record.holidayName,
+      startTime: record.startTime,
+      endTime: record.endTime,
+      compensationType: record.compensationType,
+      notes: record.notes,
+    });
+  }
+
+  async function handleDeleteHolidayWork(record: HolidayWorkRecord) {
+    if (!window.confirm("Resmi tatil çalışma kaydı silinsin mi?")) return;
+    setBusy(true);
+    try {
+      await deleteHolidayWorkRecord(record.id);
+      await saveAuditLog("Resmi tatil çalışması silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setMessage("Resmi tatil çalışma kaydı silindi.");
+    } catch {
+      setMessage("Resmi tatil çalışma kaydı silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function resetAnnualLeaveForm() {
+    setAnnualLeaveForm({
+      id: "",
+      staffId: activeStaff[0]?.id ?? "",
+      year: getCurrentYear(),
+      leaveType: "annual",
+      startDate: todayIso(),
+      endDate: todayIso(),
+      entitlementDays: 14,
+      status: "planned",
+      notes: "",
+    });
+  }
+
+  async function handleSaveAnnualLeave(event: FormEvent) {
+    event.preventDefault();
+    const staffId = annualLeaveForm.staffId || activeStaff[0]?.id || "";
+    if (!staffId) {
+      setMessage("Yıllık izin kaydı için personel seçin.");
+      return;
+    }
+
+    const existing = annualLeaveRecords.find((record) => record.id === annualLeaveForm.id);
+    const usedDays = countLeaveDays(annualLeaveForm.startDate, annualLeaveForm.endDate);
+    const record: AnnualLeaveRecord = {
+      id: annualLeaveForm.id || crypto.randomUUID(),
+      staffId,
+      year: Number(annualLeaveForm.year) || getCurrentYear(),
+      leaveType: annualLeaveForm.leaveType,
+      startDate: annualLeaveForm.startDate,
+      endDate: annualLeaveForm.endDate,
+      usedDays,
+      entitlementDays: Number(annualLeaveForm.entitlementDays) || 0,
+      status: annualLeaveForm.status,
+      notes: annualLeaveForm.notes.trim(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!record.usedDays) {
+      setMessage("Yıllık izin kaydı için geçerli tarih aralığı girin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveAnnualLeaveRecord(record);
+      await saveAuditLog(annualLeaveForm.id ? "Yıllık izin kaydı güncellendi" : "Yıllık izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      resetAnnualLeaveForm();
+      setMessage("Yıllık izin kaydı kaydedildi.");
+    } catch {
+      setMessage("Yıllık izin kaydı kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleEditAnnualLeave(record: AnnualLeaveRecord) {
+    setAnnualLeaveForm({
+      id: record.id,
+      staffId: record.staffId,
+      year: record.year,
+      leaveType: record.leaveType,
+      startDate: record.startDate,
+      endDate: record.endDate,
+      entitlementDays: record.entitlementDays,
+      status: record.status,
+      notes: record.notes,
+    });
+  }
+
+  async function handleDeleteAnnualLeave(record: AnnualLeaveRecord) {
+    if (!window.confirm("Yıllık izin kaydı silinsin mi?")) return;
+    setBusy(true);
+    try {
+      await deleteAnnualLeaveRecord(record.id);
+      await saveAuditLog("Yıllık izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setMessage("Yıllık izin kaydı silindi.");
+    } catch {
+      setMessage("Yıllık izin kaydı silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -1857,6 +2327,441 @@ function App() {
                   </tbody>
                 </table>
               </div>
+            </section>
+          </main>
+        )}
+
+        {activeTab === "incapacity" && (
+          <main className="workspace">
+            <section className="metric-row" aria-label="İş göremezlik özeti">
+              <Metric label="Rapor" value={incapacityStats.total} />
+              <Metric label="Aktif" value={incapacityStats.active} tone="amber" />
+              <Metric label="Toplam Gün" value={incapacityStats.days} tone="blue" />
+            </section>
+
+            <section className="workspace two-column">
+              <section className="data-panel form-panel">
+                <form className="staff-form" onSubmit={(event) => void handleSaveIncapacityReport(event)}>
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>İş Göremezlik Raporu</h2>
+                      <span>{incapacityForm.id ? "Kayıt düzenleniyor" : "Yeni kayıt"}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Personel
+                    <select value={incapacityForm.staffId} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Başlangıç
+                    <input type="date" value={incapacityForm.startDate} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, startDate: event.target.value }))} />
+                  </label>
+                  <label>
+                    Bitiş
+                    <input type="date" value={incapacityForm.endDate} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, endDate: event.target.value }))} />
+                  </label>
+                  <label>
+                    Gün Sayısı
+                    <input value={countCalendarDays(incapacityForm.startDate, incapacityForm.endDate)} readOnly />
+                  </label>
+                  <label>
+                    Rapor Nedeni
+                    <input value={incapacityForm.reason} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, reason: event.target.value }))} placeholder="Rapor nedeni" />
+                  </label>
+                  <label>
+                    Durum
+                    <select value={incapacityForm.status} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, status: event.target.value as IncapacityStatus }))}>
+                      <option value="active">Aktif</option>
+                      <option value="completed">Bitti</option>
+                      <option value="cancelled">İptal</option>
+                    </select>
+                  </label>
+                  <label>
+                    Not
+                    <textarea value={incapacityForm.notes} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Kaydet
+                    </button>
+                    {incapacityForm.id && (
+                      <button className="secondary-action" type="button" onClick={resetIncapacityForm}>
+                        <X size={18} aria-hidden="true" />
+                        Vazgeç
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="data-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Rapor Kayıtları</h2>
+                    <span>Personel bazlı iş göremezlik geçmişi</span>
+                  </div>
+                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                    <RefreshCw size={18} aria-hidden="true" />
+                    Yenile
+                  </button>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Personel</th>
+                        <th>Tarih</th>
+                        <th>Gün</th>
+                        <th>Neden</th>
+                        <th>Durum</th>
+                        <th>Not</th>
+                        <th aria-label="İşlem" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {incapacityReports.map((record) => (
+                        <tr key={record.id}>
+                          <td>
+                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                          </td>
+                          <td>{record.startDate} - {record.endDate}</td>
+                          <td>{record.dayCount}</td>
+                          <td>{record.reason}</td>
+                          <td><span className="status-toggle">{incapacityStatusLabels[record.status]}</span></td>
+                          <td>{record.notes}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button className="icon-button" onClick={() => handleEditIncapacityReport(record)} title="Düzenle" aria-label="Raporu düzenle">
+                                <Edit3 size={17} />
+                              </button>
+                              <button className="icon-button danger" onClick={() => void handleDeleteIncapacityReport(record)} title="Sil" aria-label="Raporu sil">
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!incapacityReports.length && <div className="empty-state">İş göremezlik raporu bulunmuyor.</div>}
+              </section>
+            </section>
+          </main>
+        )}
+
+        {activeTab === "holidayWork" && (
+          <main className="workspace">
+            <section className="metric-row" aria-label="Resmi tatil çalışma özeti">
+              <Metric label="Kayıt" value={holidayWorkStats.total} />
+              <Metric label="Saat" value={holidayWorkStats.hours} tone="blue" />
+              <Metric label="Ücret" value={holidayWorkStats.paidCompensation} tone="green" />
+              <Metric label="İzin Karşılığı" value={holidayWorkStats.leaveCompensation} tone="amber" />
+            </section>
+
+            <section className="workspace two-column">
+              <section className="data-panel form-panel">
+                <form className="staff-form" onSubmit={(event) => void handleSaveHolidayWork(event)}>
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Resmi Tatilde Çalışan</h2>
+                      <span>{holidayWorkForm.id ? "Kayıt düzenleniyor" : "Yeni kayıt"}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Personel
+                    <select value={holidayWorkForm.staffId} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Tarih
+                    <input type="date" value={holidayWorkForm.date} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, date: event.target.value }))} />
+                  </label>
+                  <label>
+                    Tatil Adı
+                    <input value={holidayWorkForm.holidayName} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, holidayName: event.target.value }))} placeholder="Örn. Ramazan Bayramı" />
+                  </label>
+                  <label>
+                    Giriş
+                    <input type="time" value={holidayWorkForm.startTime} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, startTime: event.target.value }))} />
+                  </label>
+                  <label>
+                    Çıkış
+                    <input type="time" value={holidayWorkForm.endTime} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, endTime: event.target.value }))} />
+                  </label>
+                  <label>
+                    Çalışma Saati
+                    <input value={calculateWorkHours(holidayWorkForm.startTime, holidayWorkForm.endTime)} readOnly />
+                  </label>
+                  <label>
+                    Karşılık
+                    <select value={holidayWorkForm.compensationType} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, compensationType: event.target.value as HolidayCompensationType }))}>
+                      <option value="paid">Ücret</option>
+                      <option value="leave">İzin karşılığı</option>
+                      <option value="none">Belirtilmedi</option>
+                    </select>
+                  </label>
+                  <label>
+                    Not
+                    <textarea value={holidayWorkForm.notes} onChange={(event) => setHolidayWorkForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Kaydet
+                    </button>
+                    {holidayWorkForm.id && (
+                      <button className="secondary-action" type="button" onClick={resetHolidayWorkForm}>
+                        <X size={18} aria-hidden="true" />
+                        Vazgeç
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="data-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Resmi Tatil Çalışmaları</h2>
+                    <span>Çalışma saati ve ödeme/izin karşılığı</span>
+                  </div>
+                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                    <RefreshCw size={18} aria-hidden="true" />
+                    Yenile
+                  </button>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Personel</th>
+                        <th>Tarih</th>
+                        <th>Tatil</th>
+                        <th>Saat</th>
+                        <th>Toplam</th>
+                        <th>Karşılık</th>
+                        <th>Not</th>
+                        <th aria-label="İşlem" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {holidayWorkRecords.map((record) => (
+                        <tr key={record.id}>
+                          <td>
+                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                          </td>
+                          <td>{record.date}</td>
+                          <td>{record.holidayName}</td>
+                          <td>{record.startTime} - {record.endTime}</td>
+                          <td>{record.hours}</td>
+                          <td><span className="status-toggle">{holidayCompensationLabels[record.compensationType]}</span></td>
+                          <td>{record.notes}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button className="icon-button" onClick={() => handleEditHolidayWork(record)} title="Düzenle" aria-label="Çalışma kaydını düzenle">
+                                <Edit3 size={17} />
+                              </button>
+                              <button className="icon-button danger" onClick={() => void handleDeleteHolidayWork(record)} title="Sil" aria-label="Çalışma kaydını sil">
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!holidayWorkRecords.length && <div className="empty-state">Resmi tatil çalışma kaydı bulunmuyor.</div>}
+              </section>
+            </section>
+          </main>
+        )}
+
+        {activeTab === "annualLeave" && (
+          <main className="workspace">
+            <section className="metric-row" aria-label="Yıllık izin özeti">
+              <Metric label="Kayıt" value={annualLeaveStats.records} />
+              <Metric label="Kullanılan" value={annualLeaveStats.used} tone="amber" />
+              <Metric label="Planlanan" value={annualLeaveStats.planned} tone="blue" />
+              <Metric label="Kalan" value={annualLeaveStats.remaining} tone="green" />
+            </section>
+
+            <section className="workspace two-column">
+              <section className="data-panel form-panel">
+                <form className="staff-form" onSubmit={(event) => void handleSaveAnnualLeave(event)}>
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Yıllık İzin Takibi</h2>
+                      <span>{annualLeaveForm.id ? "Kayıt düzenleniyor" : "Yeni kayıt"}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Personel
+                    <select value={annualLeaveForm.staffId} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Yıl
+                    <input type="number" value={annualLeaveForm.year} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, year: Number(event.target.value) }))} />
+                  </label>
+                  <label>
+                    İzin Türü
+                    <select value={annualLeaveForm.leaveType} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, leaveType: event.target.value as AnnualLeaveType }))}>
+                      <option value="annual">Yıllık izin</option>
+                      <option value="excuse">Mazeret</option>
+                      <option value="unpaid">Ücretsiz izin</option>
+                      <option value="other">Diğer</option>
+                    </select>
+                  </label>
+                  <label>
+                    Başlangıç
+                    <input type="date" value={annualLeaveForm.startDate} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, startDate: event.target.value, year: Number(event.target.value.slice(0, 4)) || previous.year }))} />
+                  </label>
+                  <label>
+                    Bitiş
+                    <input type="date" value={annualLeaveForm.endDate} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, endDate: event.target.value }))} />
+                  </label>
+                  <label>
+                    Kullanılan Gün
+                    <input value={countLeaveDays(annualLeaveForm.startDate, annualLeaveForm.endDate)} readOnly />
+                  </label>
+                  <label>
+                    Hak Edilen Gün
+                    <input type="number" min="0" value={annualLeaveForm.entitlementDays} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, entitlementDays: Number(event.target.value) }))} />
+                  </label>
+                  <label>
+                    Durum
+                    <select value={annualLeaveForm.status} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, status: event.target.value as LeaveStatus }))}>
+                      <option value="planned">Planlandı</option>
+                      <option value="used">Kullanıldı</option>
+                      <option value="cancelled">İptal</option>
+                    </select>
+                  </label>
+                  <label>
+                    Not
+                    <textarea value={annualLeaveForm.notes} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Kaydet
+                    </button>
+                    {annualLeaveForm.id && (
+                      <button className="secondary-action" type="button" onClick={resetAnnualLeaveForm}>
+                        <X size={18} aria-hidden="true" />
+                        Vazgeç
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="data-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>{annualLeaveYear} Kalan İzin Özeti</h2>
+                    <span>Yıllık izin türündeki planlanan ve kullanılan günler hesaplanır</span>
+                  </div>
+                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                    <RefreshCw size={18} aria-hidden="true" />
+                    Yenile
+                  </button>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table summary-table">
+                    <thead>
+                      <tr>
+                        <th>Personel</th>
+                        <th>Hak</th>
+                        <th>Kullanılan</th>
+                        <th>Planlanan</th>
+                        <th>Kalan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {annualLeaveSummaries.map((row) => (
+                        <tr key={row.staff.id}>
+                          <td>
+                            <strong>{row.staff.name}</strong>
+                            <span>{row.staff.department}</span>
+                          </td>
+                          <td>{row.entitlement}</td>
+                          <td>{row.used}</td>
+                          <td>{row.planned}</td>
+                          <td>{row.remaining}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!annualLeaveSummaries.length && <div className="empty-state">Bu yıl için yıllık izin özeti bulunmuyor.</div>}
+              </section>
+            </section>
+
+            <section className="data-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>İzin Kayıtları</h2>
+                  <span>Pazar günleri izin gününden düşülmez</span>
+                </div>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Personel</th>
+                      <th>Yıl</th>
+                      <th>Tür</th>
+                      <th>Tarih</th>
+                      <th>Gün</th>
+                      <th>Durum</th>
+                      <th>Not</th>
+                      <th aria-label="İşlem" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {annualLeaveRecords.map((record) => (
+                      <tr key={record.id}>
+                        <td>
+                          <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                          <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                        </td>
+                        <td>{record.year}</td>
+                        <td>{annualLeaveTypeLabels[record.leaveType]}</td>
+                        <td>{record.startDate} - {record.endDate}</td>
+                        <td>{record.usedDays}</td>
+                        <td><span className="status-toggle">{leaveStatusLabels[record.status]}</span></td>
+                        <td>{record.notes}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="icon-button" onClick={() => handleEditAnnualLeave(record)} title="Düzenle" aria-label="İzin kaydını düzenle">
+                              <Edit3 size={17} />
+                            </button>
+                            <button className="icon-button danger" onClick={() => void handleDeleteAnnualLeave(record)} title="Sil" aria-label="İzin kaydını sil">
+                              <Trash2 size={17} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!annualLeaveRecords.length && <div className="empty-state">Yıllık izin kaydı bulunmuyor.</div>}
             </section>
           </main>
         )}

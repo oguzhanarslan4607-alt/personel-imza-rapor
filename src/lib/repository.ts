@@ -23,10 +23,13 @@ import {
   type Firestore,
 } from "firebase/firestore";
 import type {
+  AnnualLeaveRecord,
   AttendanceRecord,
   AuditLogRecord,
   DayLockRecord,
   DeletedAttendanceRecord,
+  HolidayWorkRecord,
+  IncapacityReportRecord,
   PrintArchiveRecord,
   StaffMember,
 } from "../types";
@@ -37,6 +40,9 @@ const PRINT_ARCHIVE_KEY = "personel-imza.printArchive.v1";
 const DAY_LOCK_KEY = "personel-imza.dayLocks.v1";
 const AUDIT_LOG_KEY = "personel-imza.auditLogs.v1";
 const DELETED_ATTENDANCE_KEY = "personel-imza.deletedAttendance.v1";
+const INCAPACITY_REPORT_KEY = "personel-imza.incapacityReports.v1";
+const HOLIDAY_WORK_KEY = "personel-imza.holidayWork.v1";
+const ANNUAL_LEAVE_KEY = "personel-imza.annualLeave.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -446,4 +452,127 @@ export async function saveAuditLog(action: string, detail: string) {
 
   const records = readLocal<AuditLogRecord[]>(AUDIT_LOG_KEY, []);
   writeLocal(AUDIT_LOG_KEY, [record, ...records].slice(0, 200));
+}
+
+export async function loadIncapacityReports(): Promise<IncapacityReportRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "incapacityReports"), orderBy("startDate", "desc")));
+      return snapshot.docs.map((item) => item.data() as IncapacityReportRecord);
+    } catch (error) {
+      console.warn("Firebase incapacity reports read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<IncapacityReportRecord[]>(INCAPACITY_REPORT_KEY, []).sort((a, b) => b.startDate.localeCompare(a.startDate));
+}
+
+export async function saveIncapacityReport(record: IncapacityReportRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "incapacityReports", record.id), {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      serverUpdatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<IncapacityReportRecord[]>(INCAPACITY_REPORT_KEY, []);
+  writeLocal(INCAPACITY_REPORT_KEY, [record, ...records.filter((item) => item.id !== record.id)]);
+}
+
+export async function deleteIncapacityReport(id: string) {
+  if (db) {
+    await waitForSignedIn();
+    await deleteDoc(doc(db, "incapacityReports", id));
+    return;
+  }
+
+  const records = readLocal<IncapacityReportRecord[]>(INCAPACITY_REPORT_KEY, []);
+  writeLocal(INCAPACITY_REPORT_KEY, records.filter((record) => record.id !== id));
+}
+
+export async function loadHolidayWorkRecords(): Promise<HolidayWorkRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "holidayWork"), orderBy("date", "desc")));
+      return snapshot.docs.map((item) => item.data() as HolidayWorkRecord);
+    } catch (error) {
+      console.warn("Firebase holiday work read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<HolidayWorkRecord[]>(HOLIDAY_WORK_KEY, []).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export async function saveHolidayWorkRecord(record: HolidayWorkRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "holidayWork", record.id), {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      serverUpdatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<HolidayWorkRecord[]>(HOLIDAY_WORK_KEY, []);
+  writeLocal(HOLIDAY_WORK_KEY, [record, ...records.filter((item) => item.id !== record.id)]);
+}
+
+export async function deleteHolidayWorkRecord(id: string) {
+  if (db) {
+    await waitForSignedIn();
+    await deleteDoc(doc(db, "holidayWork", id));
+    return;
+  }
+
+  const records = readLocal<HolidayWorkRecord[]>(HOLIDAY_WORK_KEY, []);
+  writeLocal(HOLIDAY_WORK_KEY, records.filter((record) => record.id !== id));
+}
+
+export async function loadAnnualLeaveRecords(): Promise<AnnualLeaveRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "annualLeave"), orderBy("startDate", "desc")));
+      return snapshot.docs.map((item) => item.data() as AnnualLeaveRecord);
+    } catch (error) {
+      console.warn("Firebase annual leave read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<AnnualLeaveRecord[]>(ANNUAL_LEAVE_KEY, []).sort((a, b) => b.startDate.localeCompare(a.startDate));
+}
+
+export async function saveAnnualLeaveRecord(record: AnnualLeaveRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "annualLeave", record.id), {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      serverUpdatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<AnnualLeaveRecord[]>(ANNUAL_LEAVE_KEY, []);
+  writeLocal(ANNUAL_LEAVE_KEY, [record, ...records.filter((item) => item.id !== record.id)]);
+}
+
+export async function deleteAnnualLeaveRecord(id: string) {
+  if (db) {
+    await waitForSignedIn();
+    await deleteDoc(doc(db, "annualLeave", id));
+    return;
+  }
+
+  const records = readLocal<AnnualLeaveRecord[]>(ANNUAL_LEAVE_KEY, []);
+  writeLocal(ANNUAL_LEAVE_KEY, records.filter((record) => record.id !== id));
 }

@@ -1100,6 +1100,12 @@ button:disabled {
   width: 100%;
   min-width: 0;
   padding: 10px 12px;
+  white-space: normal;
+  text-align: left;
+}
+
+.side-nav .tabbar button span {
+  line-height: 1.2;
 }
 
 .mobile-tabbar {
