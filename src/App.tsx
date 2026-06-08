@@ -401,6 +401,38 @@ function getMonthEndIso(month: string) {
   return isoFromUtcDate(new Date(Date.UTC(year, monthIndex, 0)));
 }
 
+function formatDateDotTr(date: string) {
+  if (!date) return "";
+  const [year, month, day] = date.split("-");
+  return `${day}.${month}.${year}`;
+}
+
+function getNextCalendarDateIso(date: string) {
+  return addDaysIso(date, 1);
+}
+
+function safeFilename(value: string) {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-zA-Z0-9-_]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLowerCase();
+}
+
+function annualLeavePdfLayout(borderColor: string) {
+  return {
+    hLineWidth: () => 0.75,
+    vLineWidth: () => 0.75,
+    hLineColor: () => borderColor,
+    vLineColor: () => borderColor,
+    paddingLeft: () => 2,
+    paddingRight: () => 2,
+    paddingTop: () => 1,
+    paddingBottom: () => 1,
+  };
+}
+
 function groupHolidayWorkRecords(records: HolidayWorkRecord[], staffById?: Map<string, StaffMember>): HolidayWorkGroup[] {
   const groups = new Map<string, HolidayWorkRecord[]>();
 
@@ -1926,6 +1958,130 @@ function App() {
     }
   }
 
+  async function handleDownloadAnnualLeavePdf() {
+    const staffId = annualLeaveForm.staffId || activeStaff[0]?.id || "";
+    const staffMember = staffById.get(staffId);
+    if (!staffMember) {
+      setMessage("PDF için personel seçin.");
+      return;
+    }
+
+    const usedDays = countLeaveDays(annualLeaveForm.startDate, annualLeaveForm.endDate);
+    if (!usedDays) {
+      setMessage("PDF için geçerli tarih aralığı girin.");
+      return;
+    }
+
+    const pdfMakeModule = await import("pdfmake/build/pdfmake");
+    const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+    const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+    const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
+    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
+
+    const startDate = formatDateDotTr(annualLeaveForm.startDate);
+    const endDate = formatDateDotTr(annualLeaveForm.endDate);
+    const returnDate = formatDateDotTr(getNextCalendarDateIso(annualLeaveForm.endDate));
+    const borderColor = "#111111";
+    const titleCell = (text: string) => ({ text, bold: true, colSpan: 2, margin: [0, 2, 0, 2] });
+    const labelCell = (text: string) => ({ text, margin: [0, 1, 0, 1] });
+    const valueCell = (text: string | number) => ({ text: String(text ?? ""), bold: true, margin: [0, 1, 0, 1] });
+
+    const docDefinition = {
+      pageSize: "A4",
+      pageMargins: [29, 34, 29, 34],
+      defaultStyle: { font: "Roboto", fontSize: 10.5, lineHeight: 1.1 },
+      styles: {
+        title: { fontSize: 13, bold: true, alignment: "center", margin: [0, 0, 0, 28] },
+        boldLine: { fontSize: 10.5, bold: true },
+        note: { fontSize: 10.2, bold: true },
+      },
+      content: [
+        { text: "YILLIK İZİN FORMU", style: "title" },
+        {
+          table: {
+            widths: ["49.5%", "50.5%"],
+            body: [
+              [titleCell("İzin İsteminde Bulunan Personelin"), ""],
+              [labelCell("Adı ve Soyadı"), valueCell(staffMember.name)],
+              [labelCell("T.C Kimlik No"), ""],
+              [labelCell("Unvanı"), valueCell(staffMember.title)],
+            ],
+          },
+          layout: annualLeavePdfLayout(borderColor),
+          margin: [0, 0, 0, 12],
+        },
+        {
+          table: {
+            widths: ["49.5%", "50.5%"],
+            body: [
+              [titleCell("Kullanılacak İzin"), ""],
+              [labelCell("Süresi (Gün)"), valueCell(usedDays)],
+              [labelCell("Başlangıç Tarihi"), valueCell(startDate)],
+              [labelCell("Bitiş Tarihi (Tatile Rastlasa Bile Bitiş Günü Yazılır)"), valueCell(endDate)],
+              [labelCell("Göreve Başlayacağı Tarih"), valueCell(returnDate)],
+              [{ text: "Talep Eden Çalışanın İmzası", bold: true, margin: [0, 13, 0, 14] }, ""],
+            ],
+          },
+          layout: annualLeavePdfLayout(borderColor),
+          margin: [0, 0, 0, 12],
+        },
+        {
+          table: {
+            widths: ["*"],
+            body: [
+              [{ text: "PERSONELİN İZİN KULLANDIĞINA DAİR ONAYI", bold: true, alignment: "center", margin: [0, 2, 0, 13] }],
+              [
+                {
+                  stack: [
+                    { text: `${startDate} ve ${endDate} tarihinde iznimi kullandım. ${returnDate} tarihinde görevime başladım.`, style: "boldLine", margin: [0, 11, 0, 17] },
+                    {
+                      columns: [
+                        { text: "Ad Soyad:", bold: true, width: "42%" },
+                        { text: "İmza:", bold: true, width: "58%" },
+                      ],
+                    },
+                  ],
+                  minHeight: 70,
+                },
+              ],
+            ],
+          },
+          layout: annualLeavePdfLayout(borderColor),
+          margin: [0, 0, 0, 12],
+        },
+        {
+          table: {
+            widths: ["*"],
+            body: [
+              [
+                {
+                  stack: [
+                    { text: `İlgili Personel ${endDate} tarihinde izinden dönmüş ve ${returnDate} tarihinde görevine başlamıştır.`, margin: [0, 45, 0, 2] },
+                    { text: "YETKİLİ ONAY", bold: true },
+                  ],
+                  minHeight: 74,
+                },
+              ],
+            ],
+          },
+          layout: annualLeavePdfLayout(borderColor),
+          margin: [0, 0, 0, 25],
+        },
+        { text: "* Yılı içerisinde kullanılmayan izin süresi otomatik olarak ertesi yıla devreder.", style: "note", margin: [0, 0, 0, 10] },
+        {
+          ol: [
+            { text: "Personel izne giderken izin talep kısmını doldurur amirinden onay alır. Geldiğinde döndüğüne dair kısmı imzalayıp iznini onaylar.", bold: true },
+            { text: "Amiri İnsan Kaynaklarına yada muhasebeye ilgili ay içerisinde teslim eder", bold: true },
+            { text: "Farklı tarihleri kapsayan her izin dönemi için ayrı ayrı izin formu kullanılması gerekir.", bold: true },
+          ],
+          margin: [13, 0, 0, 0],
+        },
+      ],
+    };
+
+    pdfMake.createPdf(docDefinition).download(`${safeFilename(staffMember.name || "personel")}-yillik-izin-formu-${annualLeaveForm.startDate}.pdf`);
+  }
+
   async function handleLoadReport() {
     setBusy(true);
     try {
@@ -3214,6 +3370,10 @@ function App() {
                     <button className="primary-action" type="submit" disabled={busy}>
                       <Save size={18} aria-hidden="true" />
                       Kaydet
+                    </button>
+                    <button className="secondary-action" type="button" onClick={() => void handleDownloadAnnualLeavePdf()} disabled={busy}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF İndir
                     </button>
                     {annualLeaveForm.id && (
                       <button className="secondary-action" type="button" onClick={resetAnnualLeaveForm}>
