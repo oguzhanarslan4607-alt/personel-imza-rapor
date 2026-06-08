@@ -106,7 +106,7 @@ type TabKey =
   | "staff"
   | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
-type PrintMode = "signature" | "holidayWork";
+type PrintMode = "signature" | "holidayWork" | "incapacity";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -395,6 +395,12 @@ function formatMonthTr(month: string) {
   return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(`${month}-01T12:00:00`));
 }
 
+function getMonthEndIso(month: string) {
+  const year = Number(month.slice(0, 4));
+  const monthIndex = Number(month.slice(5, 7));
+  return isoFromUtcDate(new Date(Date.UTC(year, monthIndex, 0)));
+}
+
 function groupHolidayWorkRecords(records: HolidayWorkRecord[], staffById?: Map<string, StaffMember>): HolidayWorkGroup[] {
   const groups = new Map<string, HolidayWorkRecord[]>();
 
@@ -586,6 +592,7 @@ function App() {
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
   const [printMode, setPrintMode] = useState<PrintMode>("signature");
+  const [incapacityReportMonth, setIncapacityReportMonth] = useState(todayIso().slice(0, 7));
   const [holidayReportMonth, setHolidayReportMonth] = useState(todayIso().slice(0, 7));
   const [excludedFixedHolidayStaffIds, setExcludedFixedHolidayStaffIds] = useState<string[]>([]);
   const [staffSearch, setStaffSearch] = useState("");
@@ -837,13 +844,19 @@ function App() {
         .slice(0, 5),
     [reportSummaryRows],
   );
+  const incapacityRowsForMonth = useMemo(() => {
+    const monthStart = `${incapacityReportMonth}-01`;
+    const monthEnd = getMonthEndIso(incapacityReportMonth);
+
+    return incapacityReports.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
+  }, [incapacityReportMonth, incapacityReports]);
   const incapacityStats = useMemo(
     () => ({
-      total: incapacityReports.length,
-      active: incapacityReports.filter((record) => record.status === "active").length,
-      days: incapacityReports.reduce((sum, record) => sum + record.dayCount, 0),
+      total: incapacityRowsForMonth.length,
+      active: incapacityRowsForMonth.filter((record) => record.status === "active").length,
+      days: incapacityRowsForMonth.reduce((sum, record) => sum + record.dayCount, 0),
     }),
-    [incapacityReports],
+    [incapacityRowsForMonth],
   );
   const holidayWorkRowsForMonth = useMemo(
     () => holidayWorkRecords.filter((record) => record.date.startsWith(holidayReportMonth)),
@@ -1581,6 +1594,11 @@ function App() {
     });
   }
 
+  function handleIncapacityStartDateChange(date: string) {
+    setIncapacityReportMonth(date.slice(0, 7));
+    setIncapacityForm((previous) => ({ ...previous, startDate: date }));
+  }
+
   async function handleSaveIncapacityReport(event: FormEvent) {
     event.preventDefault();
     const staffId = incapacityForm.staffId || activeStaff[0]?.id || "";
@@ -2040,6 +2058,41 @@ function App() {
       { title: "Aylık Özet", rows: summaryRows },
       { title: "Detay Kayıtları", rows: detailRows },
     ]);
+  }
+
+  function getIncapacityExportRows() {
+    return [
+      ["Rapor No", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "Not"],
+      ...incapacityRowsForMonth.map((record) => {
+        const member = staffById.get(record.staffId);
+        return [
+          record.reportNumber ?? "",
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          record.startDate,
+          record.endDate,
+          record.dayCount,
+          record.reason,
+          incapacityStatusLabels[record.status],
+          record.notes,
+        ];
+      }),
+    ];
+  }
+
+  function handleExportIncapacityExcel() {
+    downloadExcelFile(`is-goremezlik-raporu-${incapacityReportMonth}.xls`, [
+      { title: `${formatMonthTr(incapacityReportMonth)} İş Göremezlik Raporu`, rows: getIncapacityExportRows() },
+    ]);
+  }
+
+  function handlePrintIncapacityReport() {
+    setPrintMode("incapacity");
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode("signature");
+    }, 0);
   }
 
   function getHolidayWorkExportRows() {
@@ -2750,7 +2803,7 @@ function App() {
                   </label>
                   <label>
                     Başlangıç
-                    <input type="date" value={incapacityForm.startDate} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, startDate: event.target.value }))} />
+                    <input type="date" value={incapacityForm.startDate} onChange={(event) => handleIncapacityStartDateChange(event.target.value)} />
                   </label>
                   <label>
                     Bitiş
@@ -2795,12 +2848,26 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h2>Rapor Kayıtları</h2>
-                    <span>Personel bazlı iş göremezlik geçmişi</span>
+                    <span>{formatMonthTr(incapacityReportMonth)} personel bazlı iş göremezlik geçmişi</span>
                   </div>
-                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
-                    <RefreshCw size={18} aria-hidden="true" />
-                    Yenile
-                  </button>
+                  <div className="button-row">
+                    <label className="compact-month-filter">
+                      Ay
+                      <input type="month" value={incapacityReportMonth} onChange={(event) => setIncapacityReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                    </label>
+                    <button className="secondary-action" onClick={handleExportIncapacityExcel} disabled={!incapacityRowsForMonth.length}>
+                      <FileSpreadsheet size={18} aria-hidden="true" />
+                      Excel
+                    </button>
+                    <button className="secondary-action" onClick={handlePrintIncapacityReport} disabled={!incapacityRowsForMonth.length}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF
+                    </button>
+                    <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                      <RefreshCw size={18} aria-hidden="true" />
+                      Yenile
+                    </button>
+                  </div>
                 </div>
                 <div className="table-scroll">
                   <table className="data-table">
@@ -2817,7 +2884,7 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {incapacityReports.map((record) => (
+                      {incapacityRowsForMonth.map((record) => (
                         <tr key={record.id}>
                           <td>
                             <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
@@ -2844,7 +2911,7 @@ function App() {
                     </tbody>
                   </table>
                 </div>
-                {!incapacityReports.length && <div className="empty-state">İş göremezlik raporu bulunmuyor.</div>}
+                {!incapacityRowsForMonth.length && <div className="empty-state">Seçili ayda iş göremezlik raporu bulunmuyor.</div>}
               </section>
             </section>
           </main>
@@ -3892,7 +3959,14 @@ function App() {
       </div>
 
       <div className="print-area" aria-hidden="true">
-        {printMode === "holidayWork" ? (
+        {printMode === "incapacity" ? (
+          <IncapacityPrintReport
+            records={incapacityRowsForMonth}
+            staffById={staffById}
+            stats={incapacityStats}
+            reportMonth={incapacityReportMonth}
+          />
+        ) : printMode === "holidayWork" ? (
           <HolidayWorkPrintReport
             groups={holidayWorkGroups}
             staffById={staffById}
@@ -3914,6 +3988,83 @@ function App() {
         )}
       </div>
     </>
+  );
+}
+
+function IncapacityPrintReport({
+  records,
+  staffById,
+  stats,
+  reportMonth,
+}: {
+  records: IncapacityReportRecord[];
+  staffById: Map<string, StaffMember>;
+  stats: { total: number; active: number; days: number };
+  reportMonth: string;
+}) {
+  const sortedRecords = [...records].sort((a, b) => a.startDate.localeCompare(b.startDate) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
+
+  return (
+    <article className="holiday-report-page">
+      <header className="holiday-report-header">
+        <div>
+          <strong>{formatMonthTr(reportMonth)} İş Göremezlik Raporu</strong>
+          <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
+        </div>
+        <FileSpreadsheet size={26} aria-hidden="true" />
+      </header>
+      <section className="holiday-report-summary">
+        <div>
+          <span>Rapor</span>
+          <strong>{stats.total}</strong>
+        </div>
+        <div>
+          <span>Aktif</span>
+          <strong>{stats.active}</strong>
+        </div>
+        <div>
+          <span>Toplam Gün</span>
+          <strong>{stats.days}</strong>
+        </div>
+        <div>
+          <span>Ay</span>
+          <strong>{formatMonthTr(reportMonth)}</strong>
+        </div>
+      </section>
+      <table className="holiday-report-table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Rapor No</th>
+            <th>Personel</th>
+            <th>Departman</th>
+            <th>Tarih</th>
+            <th>Gün</th>
+            <th>Neden</th>
+            <th>Durum</th>
+            <th>Not</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
+            return (
+              <tr key={record.id}>
+                <td>{index + 1}</td>
+                <td>{record.reportNumber || "-"}</td>
+                <td>{member?.name ?? ""}</td>
+                <td>{member?.department ?? ""}</td>
+                <td>{record.startDate} - {record.endDate}</td>
+                <td>{record.dayCount}</td>
+                <td>{record.reason}</td>
+                <td>{incapacityStatusLabels[record.status]}</td>
+                <td>{record.notes}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </article>
   );
 }
 
