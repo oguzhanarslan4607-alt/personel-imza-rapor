@@ -1086,6 +1086,82 @@ button:disabled {
   display: none;
 }
 
+.holiday-report-page {
+  min-height: 297mm;
+  padding: 10mm;
+  color: #111827;
+  background: #fff;
+  font-family: Arial, sans-serif;
+}
+
+.holiday-report-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12mm;
+  padding-bottom: 4mm;
+  border-bottom: 2px solid #111827;
+}
+
+.holiday-report-header div {
+  display: grid;
+  gap: 1.5mm;
+}
+
+.holiday-report-header strong {
+  font-size: 16pt;
+}
+
+.holiday-report-header span {
+  color: #4b5563;
+  font-size: 9pt;
+}
+
+.holiday-report-summary {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 3mm;
+  margin: 5mm 0;
+}
+
+.holiday-report-summary div {
+  display: grid;
+  gap: 1mm;
+  padding: 3mm;
+  border: 1px solid #9aa8b6;
+  background: #f8fafc;
+}
+
+.holiday-report-summary span {
+  color: #4b5563;
+  font-size: 8pt;
+  font-weight: 800;
+}
+
+.holiday-report-summary strong {
+  font-size: 14pt;
+}
+
+.holiday-report-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8.5pt;
+}
+
+.holiday-report-table th,
+.holiday-report-table td {
+  border: 1px solid #111827;
+  padding: 1.8mm;
+  text-align: left;
+  vertical-align: top;
+}
+
+.holiday-report-table th {
+  background: #eef2f7;
+  font-size: 8pt;
+  font-weight: 900;
+}
+
 .app-shell {
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr);
@@ -1885,6 +1961,13 @@ button:disabled {
   }
 
   .sheet-page:last-child {
+    page-break-after: auto;
+  }
+
+  .holiday-report-page {
+    width: auto;
+    min-height: calc(297mm - 16mm);
+    padding: 0;
     page-break-after: auto;
   }
 

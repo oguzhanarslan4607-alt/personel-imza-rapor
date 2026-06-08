@@ -106,6 +106,7 @@ type TabKey =
   | "staff"
   | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
+type PrintMode = "signature" | "holidayWork";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -516,6 +517,7 @@ function App() {
   });
   const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null);
   const [selectedStaffId, setSelectedStaffId] = useState("");
+  const [printMode, setPrintMode] = useState<PrintMode>("signature");
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
   const [importText, setImportText] = useState("");
@@ -1901,6 +1903,41 @@ function App() {
     ]);
   }
 
+  function getHolidayWorkExportRows() {
+    return [
+      ["Personel", "Departman", "Ünvan", "Tarih", "Tatil", "Giriş", "Çıkış", "Toplam Saat", "Karşılık", "Not"],
+      ...holidayWorkRecords.map((record) => {
+        const member = staffById.get(record.staffId);
+        return [
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          record.date,
+          record.holidayName,
+          record.startTime,
+          record.endTime,
+          record.hours,
+          holidayCompensationLabels[record.compensationType],
+          record.notes,
+        ];
+      }),
+    ];
+  }
+
+  function handleExportHolidayWorkExcel() {
+    downloadExcelFile(`resmi-tatil-calisan-raporu-${holidayWorkYear}.xls`, [
+      { title: `${holidayWorkYear} Resmi Tatil Çalışan Raporu`, rows: getHolidayWorkExportRows() },
+    ]);
+  }
+
+  function handlePrintHolidayWorkReport() {
+    setPrintMode("holidayWork");
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode("signature");
+    }, 0);
+  }
+
   if (!authChecked) {
     return <AuthStatusScreen title="Oturum kontrol ediliyor" />;
   }
@@ -2789,10 +2826,20 @@ function App() {
                     <h2>Resmi Tatil Çalışmaları</h2>
                     <span>Çalışma saati ve ödeme/izin karşılığı</span>
                   </div>
-                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
-                    <RefreshCw size={18} aria-hidden="true" />
-                    Yenile
-                  </button>
+                  <div className="button-row">
+                    <button className="secondary-action" onClick={handleExportHolidayWorkExcel} disabled={!holidayWorkRecords.length}>
+                      <FileSpreadsheet size={18} aria-hidden="true" />
+                      Excel
+                    </button>
+                    <button className="secondary-action" onClick={handlePrintHolidayWorkReport} disabled={!holidayWorkRecords.length}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF
+                    </button>
+                    <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                      <RefreshCw size={18} aria-hidden="true" />
+                      Yenile
+                    </button>
+                  </div>
                 </div>
                 <div className="table-scroll">
                   <table className="data-table">
@@ -3658,19 +3705,105 @@ function App() {
       </div>
 
       <div className="print-area" aria-hidden="true">
-        {printPages.map((pageStaff, index) => (
-          <SheetPage
-            key={`print-${index}-${pageStaff.length}`}
-            staff={pageStaff}
-            startNumber={index * settings.rowsPerPrintSide}
-            pageIndex={index}
-            pageCount={printPages.length}
-            selectedDate={selectedDate}
-            settings={settings}
+        {printMode === "holidayWork" ? (
+          <HolidayWorkPrintReport
+            records={holidayWorkRecords}
+            staffById={staffById}
+            stats={holidayWorkStats}
+            year={holidayWorkYear}
           />
-        ))}
+        ) : (
+          printPages.map((pageStaff, index) => (
+            <SheetPage
+              key={`print-${index}-${pageStaff.length}`}
+              staff={pageStaff}
+              startNumber={index * settings.rowsPerPrintSide}
+              pageIndex={index}
+              pageCount={printPages.length}
+              selectedDate={selectedDate}
+              settings={settings}
+            />
+          ))
+        )}
       </div>
     </>
+  );
+}
+
+function HolidayWorkPrintReport({
+  records,
+  staffById,
+  stats,
+  year,
+}: {
+  records: HolidayWorkRecord[];
+  staffById: Map<string, StaffMember>;
+  stats: { total: number; hours: number; leaveCompensation: number; paidCompensation: number };
+  year: number;
+}) {
+  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
+
+  return (
+    <article className="holiday-report-page">
+      <header className="holiday-report-header">
+        <div>
+          <strong>{year} Resmi Tatil Çalışan Raporu</strong>
+          <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
+        </div>
+        <CalendarDays size={26} aria-hidden="true" />
+      </header>
+      <section className="holiday-report-summary">
+        <div>
+          <span>Kayıt</span>
+          <strong>{stats.total}</strong>
+        </div>
+        <div>
+          <span>Toplam Saat</span>
+          <strong>{stats.hours}</strong>
+        </div>
+        <div>
+          <span>Ücret</span>
+          <strong>{stats.paidCompensation}</strong>
+        </div>
+        <div>
+          <span>İzin Karşılığı</span>
+          <strong>{stats.leaveCompensation}</strong>
+        </div>
+      </section>
+      <table className="holiday-report-table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Personel</th>
+            <th>Departman</th>
+            <th>Tarih</th>
+            <th>Tatil</th>
+            <th>Saat</th>
+            <th>Toplam</th>
+            <th>Karşılık</th>
+            <th>Not</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
+            return (
+              <tr key={record.id}>
+                <td>{index + 1}</td>
+                <td>{member?.name ?? ""}</td>
+                <td>{member?.department ?? ""}</td>
+                <td>{record.date}</td>
+                <td>{record.holidayName}</td>
+                <td>{record.startTime} - {record.endTime}</td>
+                <td>{record.hours}</td>
+                <td>{holidayCompensationLabels[record.compensationType]}</td>
+                <td>{record.notes}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </article>
   );
 }
 
