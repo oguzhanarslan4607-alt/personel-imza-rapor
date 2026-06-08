@@ -129,6 +129,18 @@ type PublicHoliday = {
   name: string;
   duration: "full" | "half";
 };
+type HolidayWorkGroup = {
+  id: string;
+  staffId: string;
+  month: string;
+  dates: string[];
+  holidayNames: string[];
+  timeRanges: string[];
+  hours: number;
+  compensationSummary: string;
+  notes: string[];
+  records: HolidayWorkRecord[];
+};
 type StaffInsight = {
   staff: StaffMember;
   counts: StatusCounts;
@@ -185,6 +197,8 @@ const emptyDraft: DraftRecord = {
 };
 const EXTRA_SIGNATURE_ROWS = 3;
 const BRAND_LOGO_SRC = "/brand-logo.png";
+const HOLIDAY_WORK_DEFAULT_START = "09:00";
+const HOLIDAY_WORK_DEFAULT_END = "18:00";
 const islamicDateFormatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
   timeZone: "UTC",
   year: "numeric",
@@ -372,6 +386,59 @@ function calculateWorkHours(startTime: string, endTime: string) {
   return Math.round(((end - start) / 60) * 100) / 100;
 }
 
+function uniqueValues(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function formatMonthTr(month: string) {
+  return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(`${month}-01T12:00:00`));
+}
+
+function groupHolidayWorkRecords(records: HolidayWorkRecord[], staffById?: Map<string, StaffMember>): HolidayWorkGroup[] {
+  const groups = new Map<string, HolidayWorkRecord[]>();
+
+  records.forEach((record) => {
+    const month = record.date.slice(0, 7);
+    const key = `${record.staffId}-${month}`;
+    groups.set(key, [...(groups.get(key) ?? []), record]);
+  });
+
+  return Array.from(groups.entries())
+    .map(([id, groupRecords]) => {
+      const sortedRecords = [...groupRecords].sort((a, b) => a.date.localeCompare(b.date));
+      const compensationCounts = sortedRecords.reduce<Record<HolidayCompensationType, number>>(
+        (counts, record) => {
+          counts[record.compensationType] += 1;
+          return counts;
+        },
+        { paid: 0, leave: 0, none: 0 },
+      );
+      const compensationSummary = (Object.entries(compensationCounts) as Array<[HolidayCompensationType, number]>)
+        .filter(([, count]) => count > 0)
+        .map(([type, count]) => `${holidayCompensationLabels[type]}: ${count}`)
+        .join(", ");
+
+      return {
+        id,
+        staffId: sortedRecords[0]?.staffId ?? "",
+        month: sortedRecords[0]?.date.slice(0, 7) ?? "",
+        dates: sortedRecords.map((record) => record.date),
+        holidayNames: uniqueValues(sortedRecords.map((record) => record.holidayName)),
+        timeRanges: uniqueValues(sortedRecords.map((record) => `${record.startTime} - ${record.endTime}`)),
+        hours: Math.round(sortedRecords.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
+        compensationSummary,
+        notes: uniqueValues(sortedRecords.map((record) => record.notes)),
+        records: sortedRecords,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.month.localeCompare(b.month) ||
+        (staffById?.get(a.staffId)?.name ?? "").localeCompare(staffById?.get(b.staffId)?.name ?? "", "tr") ||
+        a.staffId.localeCompare(b.staffId),
+    );
+}
+
 function getCurrentYear() {
   return Number(todayIso().slice(0, 4));
 }
@@ -541,8 +608,8 @@ function App() {
     staffId: "",
     date: todayIso(),
     holidayName: "",
-    startTime: settings.shiftStart,
-    endTime: "17:30",
+    startTime: HOLIDAY_WORK_DEFAULT_START,
+    endTime: HOLIDAY_WORK_DEFAULT_END,
     compensationType: "paid" as HolidayCompensationType,
     notes: "",
   });
@@ -783,6 +850,7 @@ function App() {
     }),
     [holidayWorkRecords],
   );
+  const holidayWorkGroups = useMemo(() => groupHolidayWorkRecords(holidayWorkRecords, staffById), [holidayWorkRecords, staffById]);
   const holidayWorkYear = Number(holidayWorkForm.date.slice(0, 4)) || getCurrentYear();
   const publicHolidays = useMemo(() => getTurkiyePublicHolidays(holidayWorkYear), [holidayWorkYear]);
   const selectedPublicHoliday = useMemo(
@@ -1581,8 +1649,8 @@ function App() {
       staffId: activeStaff[0]?.id ?? "",
       date: today,
       holidayName: publicHoliday?.name ?? "",
-      startTime: settings.shiftStart,
-      endTime: "17:30",
+      startTime: HOLIDAY_WORK_DEFAULT_START,
+      endTime: HOLIDAY_WORK_DEFAULT_END,
       compensationType: "paid",
       notes: "",
     });
@@ -1905,20 +1973,20 @@ function App() {
 
   function getHolidayWorkExportRows() {
     return [
-      ["Personel", "Departman", "Ünvan", "Tarih", "Tatil", "Giriş", "Çıkış", "Toplam Saat", "Karşılık", "Not"],
-      ...holidayWorkRecords.map((record) => {
-        const member = staffById.get(record.staffId);
+      ["Personel", "Departman", "Ünvan", "Ay", "Tarihler", "Tatiller", "Saatler", "Toplam Saat", "Karşılık", "Not"],
+      ...holidayWorkGroups.map((group) => {
+        const member = staffById.get(group.staffId);
         return [
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
-          record.date,
-          record.holidayName,
-          record.startTime,
-          record.endTime,
-          record.hours,
-          holidayCompensationLabels[record.compensationType],
-          record.notes,
+          formatMonthTr(group.month),
+          group.dates.join(", "),
+          group.holidayNames.join(", "),
+          group.timeRanges.join(", "),
+          group.hours,
+          group.compensationSummary,
+          group.notes.join(" / "),
         ];
       }),
     ];
@@ -2846,9 +2914,9 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
-                        <th>Tarih</th>
-                        <th>Tatil</th>
-                        <th>Saat</th>
+                        <th>Ay / Tarihler</th>
+                        <th>Tatiller</th>
+                        <th>Saatler</th>
                         <th>Toplam</th>
                         <th>Karşılık</th>
                         <th>Not</th>
@@ -2856,26 +2924,34 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {holidayWorkRecords.map((record) => (
-                        <tr key={record.id}>
+                      {holidayWorkGroups.map((group) => (
+                        <tr key={group.id}>
                           <td>
-                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                            <strong>{staffById.get(group.staffId)?.name ?? ""}</strong>
+                            <span>{staffById.get(group.staffId)?.department ?? ""}</span>
                           </td>
-                          <td>{record.date}</td>
-                          <td>{record.holidayName}</td>
-                          <td>{record.startTime} - {record.endTime}</td>
-                          <td>{record.hours}</td>
-                          <td><span className="status-toggle">{holidayCompensationLabels[record.compensationType]}</span></td>
-                          <td>{record.notes}</td>
+                          <td>
+                            <strong>{formatMonthTr(group.month)}</strong>
+                            <span>{group.dates.join(", ")}</span>
+                          </td>
+                          <td>{group.holidayNames.join(", ")}</td>
+                          <td>{group.timeRanges.join(", ")}</td>
+                          <td>{group.hours}</td>
+                          <td><span className="status-toggle">{group.compensationSummary}</span></td>
+                          <td>{group.notes.join(" / ")}</td>
                           <td>
                             <div className="row-actions">
-                              <button className="icon-button" onClick={() => handleEditHolidayWork(record)} title="Düzenle" aria-label="Çalışma kaydını düzenle">
-                                <Edit3 size={17} />
-                              </button>
-                              <button className="icon-button danger" onClick={() => void handleDeleteHolidayWork(record)} title="Sil" aria-label="Çalışma kaydını sil">
-                                <Trash2 size={17} />
-                              </button>
+                              {group.records.map((record) => (
+                                <span className="record-action-pair" key={record.id}>
+                                  <small>{record.date}</small>
+                                  <button className="icon-button" onClick={() => handleEditHolidayWork(record)} title={`${record.date} düzenle`} aria-label={`${record.date} çalışma kaydını düzenle`}>
+                                    <Edit3 size={17} />
+                                  </button>
+                                  <button className="icon-button danger" onClick={() => void handleDeleteHolidayWork(record)} title={`${record.date} sil`} aria-label={`${record.date} çalışma kaydını sil`}>
+                                    <Trash2 size={17} />
+                                  </button>
+                                </span>
+                              ))}
                             </div>
                           </td>
                         </tr>
@@ -3707,7 +3783,7 @@ function App() {
       <div className="print-area" aria-hidden="true">
         {printMode === "holidayWork" ? (
           <HolidayWorkPrintReport
-            records={holidayWorkRecords}
+            groups={holidayWorkGroups}
             staffById={staffById}
             stats={holidayWorkStats}
             year={holidayWorkYear}
@@ -3731,17 +3807,17 @@ function App() {
 }
 
 function HolidayWorkPrintReport({
-  records,
+  groups,
   staffById,
   stats,
   year,
 }: {
-  records: HolidayWorkRecord[];
+  groups: HolidayWorkGroup[];
   staffById: Map<string, StaffMember>;
   stats: { total: number; hours: number; leaveCompensation: number; paidCompensation: number };
   year: number;
 }) {
-  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
+  const sortedGroups = [...groups].sort((a, b) => a.month.localeCompare(b.month) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
 
   return (
     <article className="holiday-report-page">
@@ -3776,28 +3852,28 @@ function HolidayWorkPrintReport({
             <th>No</th>
             <th>Personel</th>
             <th>Departman</th>
-            <th>Tarih</th>
-            <th>Tatil</th>
-            <th>Saat</th>
+            <th>Ay / Tarihler</th>
+            <th>Tatiller</th>
+            <th>Saatler</th>
             <th>Toplam</th>
             <th>Karşılık</th>
             <th>Not</th>
           </tr>
         </thead>
         <tbody>
-          {sortedRecords.map((record, index) => {
-            const member = staffById.get(record.staffId);
+          {sortedGroups.map((group, index) => {
+            const member = staffById.get(group.staffId);
             return (
-              <tr key={record.id}>
+              <tr key={group.id}>
                 <td>{index + 1}</td>
                 <td>{member?.name ?? ""}</td>
                 <td>{member?.department ?? ""}</td>
-                <td>{record.date}</td>
-                <td>{record.holidayName}</td>
-                <td>{record.startTime} - {record.endTime}</td>
-                <td>{record.hours}</td>
-                <td>{holidayCompensationLabels[record.compensationType]}</td>
-                <td>{record.notes}</td>
+                <td>{formatMonthTr(group.month)} / {group.dates.join(", ")}</td>
+                <td>{group.holidayNames.join(", ")}</td>
+                <td>{group.timeRanges.join(", ")}</td>
+                <td>{group.hours}</td>
+                <td>{group.compensationSummary}</td>
+                <td>{group.notes.join(" / ")}</td>
               </tr>
             );
           })}
