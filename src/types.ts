@@ -10,6 +10,10 @@ export type StaffMember = {
   name: string;
   department: string;
   title: string;
+  nationalId?: string;
+  phone?: string;
+  socialSecurityCode?: string;
+  shiftType?: string;
   active: boolean;
   showOnSignatureSheet?: boolean;
   fixedStaff?: boolean;

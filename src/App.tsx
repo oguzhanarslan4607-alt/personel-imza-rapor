@@ -622,6 +622,10 @@ function App() {
     name: "",
     department: "",
     title: "",
+    nationalId: "",
+    phone: "",
+    socialSecurityCode: "",
+    shiftType: "",
     startDate: todayIso(),
     endDate: "",
     showOnSignatureSheet: true,
@@ -964,6 +968,18 @@ function App() {
       remaining: annualLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
     }),
     [annualLeaveRowsForYear, annualLeaveSummaries],
+  );
+  const upcomingAnnualLeaves = useMemo(() => {
+    const start = todayIso();
+    const end = addDaysIso(start, 14);
+
+    return annualLeaveRecords
+      .filter((record) => record.status === "planned" && record.startDate >= start && record.startDate <= end)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  }, [annualLeaveRecords]);
+  const lowAnnualLeaveRows = useMemo(
+    () => annualLeaveSummaries.filter((row) => row.remaining <= 3).sort((a, b) => a.remaining - b.remaining),
+    [annualLeaveSummaries],
   );
 
   async function refreshStaff() {
@@ -1364,6 +1380,10 @@ function App() {
       name: newStaff.name.trim(),
       department: newStaff.department.trim(),
       title: newStaff.title.trim(),
+      nationalId: newStaff.nationalId.trim(),
+      phone: newStaff.phone.trim(),
+      socialSecurityCode: newStaff.socialSecurityCode.trim(),
+      shiftType: newStaff.shiftType.trim(),
       active: true,
       showOnSignatureSheet: newStaff.showOnSignatureSheet,
       fixedStaff: newStaff.fixedStaff,
@@ -1379,6 +1399,10 @@ function App() {
         name: "",
         department: "",
         title: "",
+        nationalId: "",
+        phone: "",
+        socialSecurityCode: "",
+        shiftType: "",
         startDate: todayIso(),
         endDate: "",
         showOnSignatureSheet: true,
@@ -1408,6 +1432,10 @@ function App() {
         name: editingStaff.name.trim(),
         department: editingStaff.department.trim(),
         title: editingStaff.title.trim(),
+        nationalId: editingStaff.nationalId?.trim() ?? "",
+        phone: editingStaff.phone?.trim() ?? "",
+        socialSecurityCode: editingStaff.socialSecurityCode?.trim() ?? "",
+        shiftType: editingStaff.shiftType?.trim() ?? "",
         showOnSignatureSheet: editingStaff.showOnSignatureSheet !== false,
         fixedStaff: Boolean(editingStaff.fixedStaff),
         startDate: editingStaff.startDate,
@@ -1432,7 +1460,19 @@ function App() {
 
     const startOrder = staff.length ? Math.max(...staff.map((item) => item.order)) + 1 : 1;
     const members = rows.map((row, index) => {
-      const [name, department = "", title = "", startDate = "", endDate = "", showOnSignatureSheet = "evet", fixedStaff = "hayir"] = row;
+      const [
+        name,
+        department = "",
+        title = "",
+        startDate = "",
+        endDate = "",
+        showOnSignatureSheet = "evet",
+        fixedStaff = "hayir",
+        nationalId = "",
+        phone = "",
+        socialSecurityCode = "",
+        shiftType = "",
+      ] = row;
       return {
         id: crypto.randomUUID(),
         order: startOrder + index,
@@ -1444,6 +1484,10 @@ function App() {
         fixedStaff: ["evet", "true", "1", "yes", "sabit"].includes(fixedStaff.toLocaleLowerCase("tr-TR")),
         startDate,
         endDate,
+        nationalId,
+        phone,
+        socialSecurityCode,
+        shiftType,
       } satisfies StaffMember;
     });
 
@@ -2009,7 +2053,7 @@ function App() {
             body: [
               [titleCell("İzin İsteminde Bulunan Personelin"), ""],
               [labelCell("Adı ve Soyadı"), valueCell(staffMember.name)],
-              [labelCell("T.C Kimlik No"), ""],
+              [labelCell("T.C Kimlik No"), valueCell(staffMember.nationalId ?? "")],
               [labelCell("Unvanı"), valueCell(staffMember.title)],
             ],
           },
@@ -2220,6 +2264,40 @@ function App() {
       { title: "Aylık Özet", rows: summaryRows },
       { title: "Detay Kayıtları", rows: detailRows },
     ]);
+  }
+
+  async function handleDownloadBackup() {
+    setBusy(true);
+    try {
+      const allAttendance = await loadAttendanceRange("2000-01-01", "2100-12-31");
+      const backup = {
+        exportedAt: new Date().toISOString(),
+        firebaseProjectId,
+        settings,
+        staff,
+        attendance: allAttendance,
+        printArchives,
+        deletedAttendance,
+        incapacityReports,
+        holidayWorkRecords,
+        annualLeaveRecords,
+        auditLogs,
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `personel-imza-yedek-${todayIso()}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      await saveAuditLog("Yedek indirildi", `${allAttendance.length} günlük kayıt`);
+      await refreshAuditLogs();
+      setMessage("Yedek dosyası indirildi.");
+    } catch {
+      setMessage("Yedek indirilemedi. İnternet bağlantısını ve yönetici yetkisini kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   function getIncapacityExportRows() {
@@ -2825,6 +2903,33 @@ function App() {
                 <Metric label="Gelmedi" value={selectedPersonSummary.absent} tone="red" />
               </section>
             )}
+
+            <section className="warning-panel-grid" aria-label="Uyarı paneli">
+              <div className="warning-panel-card">
+                <span>Gelmeyen</span>
+                <strong>{warningRows.length}</strong>
+                <small>{warningRows.length ? warningRows.slice(0, 3).map((row) => row.staff.name).join(", ") : "Seçili aralıkta yok"}</small>
+              </div>
+              <div className="warning-panel-card">
+                <span>Aktif Rapor</span>
+                <strong>{incapacityStats.active}</strong>
+                <small>İş göremezlik ekranında takip edilir</small>
+              </div>
+              <div className="warning-panel-card">
+                <span>Yaklaşan İzin</span>
+                <strong>{upcomingAnnualLeaves.length}</strong>
+                <small>
+                  {upcomingAnnualLeaves[0]
+                    ? `${upcomingAnnualLeaves[0].startDate} - ${staffById.get(upcomingAnnualLeaves[0].staffId)?.name ?? ""}`
+                    : "14 gün içinde yok"}
+                </small>
+              </div>
+              <div className="warning-panel-card">
+                <span>Az Kalan İzin</span>
+                <strong>{lowAnnualLeaveRows.length}</strong>
+                <small>{lowAnnualLeaveRows[0] ? `${lowAnnualLeaveRows[0].staff.name}: ${lowAnnualLeaveRows[0].remaining} gün` : "Kritik personel yok"}</small>
+              </div>
+            </section>
 
             {warningRows.length > 0 && (
               <section className="alert-row">
@@ -3532,6 +3637,10 @@ function App() {
                   <div className="profile-dates">
                     <span>İşe giriş: <strong>{profileStaff.startDate || "-"}</strong></span>
                     <span>İşten çıkış: <strong>{profileStaff.endDate || "-"}</strong></span>
+                    <span>T.C.: <strong>{profileStaff.nationalId || "-"}</strong></span>
+                    <span>Telefon: <strong>{profileStaff.phone || "-"}</strong></span>
+                    <span>SGK kodu: <strong>{profileStaff.socialSecurityCode || "-"}</strong></span>
+                    <span>Vardiya: <strong>{profileStaff.shiftType || "-"}</strong></span>
                     <span>Durum: <strong>{profileStaff.active ? "Aktif" : "Pasif"}</strong></span>
                   </div>
                 </section>
@@ -3742,6 +3851,37 @@ function App() {
                   />
                 </label>
                 <label>
+                  T.C. Kimlik No
+                  <input
+                    value={newStaff.nationalId}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, nationalId: event.target.value }))}
+                    inputMode="numeric"
+                  />
+                </label>
+                <label>
+                  Telefon
+                  <input
+                    value={newStaff.phone}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, phone: event.target.value }))}
+                    inputMode="tel"
+                  />
+                </label>
+                <label>
+                  SGK Görev Kodu
+                  <input
+                    value={newStaff.socialSecurityCode}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, socialSecurityCode: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  Vardiya
+                  <input
+                    value={newStaff.shiftType}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, shiftType: event.target.value }))}
+                    placeholder="09:00 - 18:00"
+                  />
+                </label>
+                <label>
                   İşe Giriş
                   <input
                     type="date"
@@ -3810,6 +3950,39 @@ function App() {
                     />
                   </label>
                   <label>
+                    T.C. Kimlik No
+                    <input
+                      value={editingStaff.nationalId ?? ""}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, nationalId: event.target.value } : previous)}
+                      inputMode="numeric"
+                    />
+                  </label>
+                  <label>
+                    Telefon
+                    <input
+                      value={editingStaff.phone ?? ""}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, phone: event.target.value } : previous)}
+                      inputMode="tel"
+                    />
+                  </label>
+                  <label>
+                    SGK Görev Kodu
+                    <input
+                      value={editingStaff.socialSecurityCode ?? ""}
+                      onChange={(event) =>
+                        setEditingStaff((previous) => previous ? { ...previous, socialSecurityCode: event.target.value } : previous)
+                      }
+                    />
+                  </label>
+                  <label>
+                    Vardiya
+                    <input
+                      value={editingStaff.shiftType ?? ""}
+                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, shiftType: event.target.value } : previous)}
+                      placeholder="09:00 - 18:00"
+                    />
+                  </label>
+                  <label>
                     İşe Giriş
                     <input
                       type="date"
@@ -3865,7 +4038,7 @@ function App() {
                     value={importText}
                     onChange={(event) => setImportText(event.target.value)}
                     rows={9}
-                    placeholder="Ad Soyad;Departman;Unvan;Ise Giris;Isten Cikis;Imza Foyunde Goster;Sabit Personel"
+                    placeholder="Ad Soyad;Departman;Unvan;Ise Giris;Isten Cikis;Imza Foyunde Goster;Sabit Personel;TC Kimlik;Telefon;SGK Gorev Kodu;Vardiya"
                   />
                 </label>
                 <label>
@@ -4031,6 +4204,14 @@ function App() {
               <div className="firebase-card">
                 <span>Firebase</span>
                 <strong>{firebaseConfigured ? firebaseProjectId : "Config bekliyor"}</strong>
+              </div>
+              <div className="firebase-card backup-card">
+                <span>Yedekleme</span>
+                <strong>JSON</strong>
+                <button className="secondary-action" type="button" onClick={() => void handleDownloadBackup()} disabled={busy}>
+                  <Database size={18} aria-hidden="true" />
+                  Yedek İndir
+                </button>
               </div>
             </section>
             <section className="data-panel">
@@ -4539,6 +4720,11 @@ function StaffInsightPanel({ insight, onClose, compact = false }: { insight: Sta
         <small>
           {insight.staff.startDate ? `Giriş: ${insight.staff.startDate}` : "Giriş tarihi yok"}
           {insight.staff.endDate ? ` · Çıkış: ${insight.staff.endDate}` : ""}
+        </small>
+        <small>
+          {[insight.staff.phone, insight.staff.nationalId ? `T.C.: ${insight.staff.nationalId}` : "", insight.staff.shiftType]
+            .filter(Boolean)
+            .join(" · ") || "Ek özlük bilgisi yok"}
         </small>
       </div>
       <div className="staff-insight-grid">

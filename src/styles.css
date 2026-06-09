@@ -332,6 +332,35 @@ button {
   background: #fff7ed;
 }
 
+.warning-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.warning-panel-card {
+  display: grid;
+  gap: 5px;
+  min-height: 104px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.warning-panel-card span,
+.warning-panel-card small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.warning-panel-card strong {
+  color: var(--ink);
+  font-size: 30px;
+  line-height: 1;
+}
+
 .workspace {
   display: grid;
   gap: 16px;
@@ -978,6 +1007,14 @@ button:disabled {
 
 .firebase-card strong {
   margin-top: 4px;
+}
+
+.backup-card {
+  gap: 8px;
+}
+
+.backup-card .secondary-action {
+  width: fit-content;
 }
 
 .sheet-preview {
@@ -1942,7 +1979,8 @@ button:disabled {
   .person-card,
   .profile-hero,
   .dashboard-panel,
-  .chart-grid {
+  .chart-grid,
+  .warning-panel-grid {
     grid-template-columns: 1fr;
   }
 
