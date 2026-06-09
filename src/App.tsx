@@ -388,6 +388,10 @@ function calculateWorkHours(startTime: string, endTime: string) {
   return Math.round(((grossMinutes - breakMinutes) / 60) * 100) / 100;
 }
 
+function getHolidayWorkNetHours(record: HolidayWorkRecord) {
+  return calculateWorkHours(record.startTime, record.endTime);
+}
+
 function uniqueValues(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
@@ -466,7 +470,7 @@ function groupHolidayWorkRecords(records: HolidayWorkRecord[], staffById?: Map<s
         dates: sortedRecords.map((record) => record.date),
         holidayNames: uniqueValues(sortedRecords.map((record) => record.holidayName)),
         timeRanges: uniqueValues(sortedRecords.map((record) => `${record.startTime} - ${record.endTime}`)),
-        hours: Math.round(sortedRecords.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
+        hours: Math.round(sortedRecords.reduce((sum, record) => sum + getHolidayWorkNetHours(record), 0) * 100) / 100,
         compensationSummary,
         notes: uniqueValues(sortedRecords.map((record) => record.notes)),
         records: sortedRecords,
@@ -899,7 +903,7 @@ function App() {
   const holidayWorkStats = useMemo(
     () => ({
       total: holidayWorkRowsForMonth.length,
-      hours: Math.round(holidayWorkRowsForMonth.reduce((sum, record) => sum + record.hours, 0) * 100) / 100,
+      hours: Math.round(holidayWorkRowsForMonth.reduce((sum, record) => sum + getHolidayWorkNetHours(record), 0) * 100) / 100,
       leaveCompensation: holidayWorkRowsForMonth.filter((record) => record.compensationType === "leave").length,
       paidCompensation: holidayWorkRowsForMonth.filter((record) => record.compensationType === "paid").length,
     }),
