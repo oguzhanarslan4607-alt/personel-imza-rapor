@@ -535,7 +535,7 @@ function downloadExcelFile(filename: string, sections: Array<{ title: string; ro
         <meta charset="utf-8" />
         <style>
           table { border-collapse: collapse; margin-bottom: 24px; }
-          th, td { border: 1px solid #9aa8b6; padding: 6px 8px; font-family: Arial, sans-serif; font-size: 11pt; }
+          th, td { border: 1px solid #9aa8b6; padding: 6px 8px; font-family: Arial, sans-serif; font-size: 11pt; mso-number-format:"\\@"; }
           th { background: #e9eef5; font-weight: bold; }
           h2 { font-family: Arial, sans-serif; }
         </style>
@@ -2302,11 +2302,11 @@ function App() {
 
   function getIncapacityExportRows() {
     return [
-      ["Rapor No", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "Not"],
+      ["Rapor Numarası", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "Not"],
       ...incapacityRowsForMonth.map((record) => {
         const member = staffById.get(record.staffId);
         return [
-          record.reportNumber ?? "",
+          record.reportNumber?.trim() || "-",
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
