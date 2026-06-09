@@ -383,7 +383,9 @@ function calculateWorkHours(startTime: string, endTime: string) {
   const start = timeToMinutes(startTime);
   let end = timeToMinutes(endTime);
   if (end <= start) end += 24 * 60;
-  return Math.round(((end - start) / 60) * 100) / 100;
+  const grossMinutes = end - start;
+  const breakMinutes = grossMinutes >= 7.5 * 60 ? 60 : 0;
+  return Math.round(((grossMinutes - breakMinutes) / 60) * 100) / 100;
 }
 
 function uniqueValues(values: string[]) {
