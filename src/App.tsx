@@ -101,6 +101,7 @@ type TabKey =
   | "incapacity"
   | "holidayWork"
   | "annualLeave"
+  | "unpaidLeave"
   | "profiles"
   | "bulk"
   | "staff"
@@ -129,6 +130,17 @@ type PublicHoliday = {
   name: string;
   duration: "full" | "half";
 };
+type LeaveFormState = {
+  id: string;
+  staffId: string;
+  year: number;
+  leaveType: AnnualLeaveType;
+  startDate: string;
+  endDate: string;
+  entitlementDays: number;
+  status: LeaveStatus;
+  notes: string;
+};
 type HolidayWorkGroup = {
   id: string;
   staffId: string;
@@ -156,6 +168,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "incapacity", label: "İş Göremezlik Raporu", icon: FileSpreadsheet },
   { key: "holidayWork", label: "Resmi Tatil Çalışan", icon: CalendarDays },
   { key: "annualLeave", label: "Yıllık İzin Takibi", icon: CalendarCheck },
+  { key: "unpaidLeave", label: "Ücretsiz İzin", icon: CalendarCheck },
   { key: "profiles", label: "Profil", icon: UserRound },
   { key: "bulk", label: "Toplu İşlem", icon: CheckSquare },
   { key: "staff", label: "Personel", icon: Users },
@@ -666,7 +679,7 @@ function App() {
     compensationType: "paid" as HolidayCompensationType,
     notes: "",
   });
-  const [annualLeaveForm, setAnnualLeaveForm] = useState({
+  const [annualLeaveForm, setAnnualLeaveForm] = useState<LeaveFormState>({
     id: "",
     staffId: "",
     year: getCurrentYear(),
@@ -674,6 +687,17 @@ function App() {
     startDate: todayIso(),
     endDate: todayIso(),
     entitlementDays: 14,
+    status: "planned" as LeaveStatus,
+    notes: "",
+  });
+  const [unpaidLeaveForm, setUnpaidLeaveForm] = useState<LeaveFormState>({
+    id: "",
+    staffId: "",
+    year: getCurrentYear(),
+    leaveType: "unpaid" as AnnualLeaveType,
+    startDate: todayIso(),
+    endDate: todayIso(),
+    entitlementDays: 0,
     status: "planned" as LeaveStatus,
     notes: "",
   });
@@ -922,9 +946,13 @@ function App() {
     [holidayWorkForm.date, publicHolidays],
   );
   const annualLeaveYear = annualLeaveForm.year || getCurrentYear();
+  const annualLeaveTrackingRecords = useMemo(
+    () => annualLeaveRecords.filter((record) => record.leaveType !== "unpaid"),
+    [annualLeaveRecords],
+  );
   const annualLeaveRowsForYear = useMemo(
-    () => annualLeaveRecords.filter((record) => record.year === annualLeaveYear),
-    [annualLeaveRecords, annualLeaveYear],
+    () => annualLeaveTrackingRecords.filter((record) => record.year === annualLeaveYear),
+    [annualLeaveTrackingRecords, annualLeaveYear],
   );
   const annualLeaveSummaries = useMemo(() => {
     const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
@@ -980,6 +1008,58 @@ function App() {
   const lowAnnualLeaveRows = useMemo(
     () => annualLeaveSummaries.filter((row) => row.remaining <= 3).sort((a, b) => a.remaining - b.remaining),
     [annualLeaveSummaries],
+  );
+  const unpaidLeaveYear = unpaidLeaveForm.year || getCurrentYear();
+  const unpaidLeaveRecords = useMemo(
+    () => annualLeaveRecords.filter((record) => record.leaveType === "unpaid"),
+    [annualLeaveRecords],
+  );
+  const unpaidLeaveRowsForYear = useMemo(
+    () => unpaidLeaveRecords.filter((record) => record.year === unpaidLeaveYear),
+    [unpaidLeaveRecords, unpaidLeaveYear],
+  );
+  const unpaidLeaveSummaries = useMemo(() => {
+    const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
+
+    unpaidLeaveRowsForYear.forEach((record) => {
+      const member = staffById.get(record.staffId);
+      if (!member) return;
+
+      const current =
+        summary.get(record.staffId) ??
+        {
+          staff: member,
+          entitlement: record.entitlementDays || unpaidLeaveForm.entitlementDays,
+          used: 0,
+          planned: 0,
+          remaining: 0,
+        };
+
+      current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0, unpaidLeaveForm.entitlementDays || 0);
+      if (record.status !== "cancelled") {
+        if (record.status === "used") current.used += record.usedDays;
+        if (record.status === "planned") current.planned += record.usedDays;
+      }
+      current.remaining = Math.max(0, current.entitlement - current.used - current.planned);
+      summary.set(record.staffId, current);
+    });
+
+    return Array.from(summary.values()).sort(
+      (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
+    );
+  }, [staffById, staffRankById, unpaidLeaveForm.entitlementDays, unpaidLeaveRowsForYear]);
+  const unpaidLeaveStats = useMemo(
+    () => ({
+      records: unpaidLeaveRowsForYear.length,
+      used: unpaidLeaveRowsForYear
+        .filter((record) => record.status === "used")
+        .reduce((sum, record) => sum + record.usedDays, 0),
+      planned: unpaidLeaveRowsForYear
+        .filter((record) => record.status === "planned")
+        .reduce((sum, record) => sum + record.usedDays, 0),
+      remaining: unpaidLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
+    }),
+    [unpaidLeaveRowsForYear, unpaidLeaveSummaries],
   );
 
   async function refreshStaff() {
@@ -1147,6 +1227,7 @@ function App() {
     setIncapacityForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setHolidayWorkForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setAnnualLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+    setUnpaidLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
   }, [activeStaff, staffById]);
 
   function updateSettings(patch: Partial<AppSettings>) {
@@ -1933,6 +2014,20 @@ function App() {
     });
   }
 
+  function resetUnpaidLeaveForm() {
+    setUnpaidLeaveForm({
+      id: "",
+      staffId: activeStaff[0]?.id ?? "",
+      year: getCurrentYear(),
+      leaveType: "unpaid",
+      startDate: todayIso(),
+      endDate: todayIso(),
+      entitlementDays: 0,
+      status: "planned",
+      notes: "",
+    });
+  }
+
   async function handleSaveAnnualLeave(event: FormEvent) {
     event.preventDefault();
     const staffId = annualLeaveForm.staffId || activeStaff[0]?.id || "";
@@ -2008,15 +2103,90 @@ function App() {
     }
   }
 
-  async function handleDownloadAnnualLeavePdf() {
-    const staffId = annualLeaveForm.staffId || activeStaff[0]?.id || "";
+  async function handleSaveUnpaidLeave(event: FormEvent) {
+    event.preventDefault();
+    const staffId = unpaidLeaveForm.staffId || activeStaff[0]?.id || "";
+    if (!staffId) {
+      setMessage("Ücretsiz izin kaydı için personel seçin.");
+      return;
+    }
+
+    const existing = annualLeaveRecords.find((record) => record.id === unpaidLeaveForm.id);
+    const usedDays = countLeaveDays(unpaidLeaveForm.startDate, unpaidLeaveForm.endDate);
+    const record: AnnualLeaveRecord = {
+      id: unpaidLeaveForm.id || crypto.randomUUID(),
+      staffId,
+      year: Number(unpaidLeaveForm.year) || getCurrentYear(),
+      leaveType: "unpaid",
+      startDate: unpaidLeaveForm.startDate,
+      endDate: unpaidLeaveForm.endDate,
+      usedDays,
+      entitlementDays: Number(unpaidLeaveForm.entitlementDays) || 0,
+      status: unpaidLeaveForm.status,
+      notes: unpaidLeaveForm.notes.trim(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    if (!record.usedDays) {
+      setMessage("Ücretsiz izin kaydı için geçerli tarih aralığı girin.");
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await saveAnnualLeaveRecord(record);
+      await saveAuditLog(unpaidLeaveForm.id ? "Ücretsiz izin kaydı güncellendi" : "Ücretsiz izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      resetUnpaidLeaveForm();
+      setMessage("Ücretsiz izin kaydı kaydedildi.");
+    } catch {
+      setMessage("Ücretsiz izin kaydı kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleEditUnpaidLeave(record: AnnualLeaveRecord) {
+    setUnpaidLeaveForm({
+      id: record.id,
+      staffId: record.staffId,
+      year: record.year,
+      leaveType: "unpaid",
+      startDate: record.startDate,
+      endDate: record.endDate,
+      entitlementDays: record.entitlementDays,
+      status: record.status,
+      notes: record.notes,
+    });
+  }
+
+  async function handleDeleteUnpaidLeave(record: AnnualLeaveRecord) {
+    if (!window.confirm("Ücretsiz izin kaydı silinsin mi?")) return;
+    setBusy(true);
+    try {
+      await deleteAnnualLeaveRecord(record.id);
+      await saveAuditLog("Ücretsiz izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setMessage("Ücretsiz izin kaydı silindi.");
+    } catch {
+      setMessage("Ücretsiz izin kaydı silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDownloadLeavePdf(form: LeaveFormState, title: string, filenamePart: string) {
+    const staffId = form.staffId || activeStaff[0]?.id || "";
     const staffMember = staffById.get(staffId);
     if (!staffMember) {
       setMessage("PDF için personel seçin.");
       return;
     }
 
-    const usedDays = countLeaveDays(annualLeaveForm.startDate, annualLeaveForm.endDate);
+    const usedDays = countLeaveDays(form.startDate, form.endDate);
     if (!usedDays) {
       setMessage("PDF için geçerli tarih aralığı girin.");
       return;
@@ -2028,9 +2198,9 @@ function App() {
     const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
     pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
 
-    const startDate = formatDateDotTr(annualLeaveForm.startDate);
-    const endDate = formatDateDotTr(annualLeaveForm.endDate);
-    const returnDate = formatDateDotTr(getNextCalendarDateIso(annualLeaveForm.endDate));
+    const startDate = formatDateDotTr(form.startDate);
+    const endDate = formatDateDotTr(form.endDate);
+    const returnDate = formatDateDotTr(getNextCalendarDateIso(form.endDate));
     const borderColor = "#111111";
     const titleCell = (text: string) => ({ text, bold: true, colSpan: 2, margin: [0, 2, 0, 2] });
     const labelCell = (text: string) => ({ text, margin: [0, 1, 0, 1] });
@@ -2046,7 +2216,7 @@ function App() {
         note: { fontSize: 10.2, bold: true },
       },
       content: [
-        { text: "YILLIK İZİN FORMU", style: "title" },
+        { text: title, style: "title" },
         {
           table: {
             widths: ["49.5%", "50.5%"],
@@ -2129,7 +2299,15 @@ function App() {
       ],
     };
 
-    pdfMake.createPdf(docDefinition).download(`${safeFilename(staffMember.name || "personel")}-yillik-izin-formu-${annualLeaveForm.startDate}.pdf`);
+    pdfMake.createPdf(docDefinition).download(`${safeFilename(staffMember.name || "personel")}-${filenamePart}-${form.startDate}.pdf`);
+  }
+
+  async function handleDownloadAnnualLeavePdf() {
+    await handleDownloadLeavePdf(annualLeaveForm, "YILLIK İZİN FORMU", "yillik-izin-formu");
+  }
+
+  async function handleDownloadUnpaidLeavePdf() {
+    await handleDownloadLeavePdf(unpaidLeaveForm, "ÜCRETSİZ İZİN FORMU", "ucretsiz-izin-formu");
   }
 
   async function handleLoadReport() {
@@ -3445,7 +3623,6 @@ function App() {
                     <select value={annualLeaveForm.leaveType} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, leaveType: event.target.value as AnnualLeaveType }))}>
                       <option value="annual">Yıllık izin</option>
                       <option value="excuse">Mazeret</option>
-                      <option value="unpaid">Ücretsiz izin</option>
                       <option value="other">Diğer</option>
                     </select>
                   </label>
@@ -3560,7 +3737,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {annualLeaveRecords.map((record) => (
+                    {annualLeaveTrackingRecords.map((record) => (
                       <tr key={record.id}>
                         <td>
                           <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
@@ -3587,7 +3764,186 @@ function App() {
                   </tbody>
                 </table>
               </div>
-              {!annualLeaveRecords.length && <div className="empty-state">Yıllık izin kaydı bulunmuyor.</div>}
+              {!annualLeaveTrackingRecords.length && <div className="empty-state">Yıllık izin kaydı bulunmuyor.</div>}
+            </section>
+          </main>
+        )}
+
+        {activeTab === "unpaidLeave" && (
+          <main className="workspace">
+            <section className="metric-row" aria-label="Ücretsiz izin özeti">
+              <Metric label="Kayıt" value={unpaidLeaveStats.records} />
+              <Metric label="Kullanılan" value={unpaidLeaveStats.used} tone="amber" />
+              <Metric label="Planlanan" value={unpaidLeaveStats.planned} tone="blue" />
+              <Metric label="Kalan" value={unpaidLeaveStats.remaining} tone="green" />
+            </section>
+
+            <section className="workspace two-column">
+              <section className="data-panel form-panel">
+                <form className="staff-form" onSubmit={(event) => void handleSaveUnpaidLeave(event)}>
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Ücretsiz İzin Takibi</h2>
+                      <span>{unpaidLeaveForm.id ? "Kayıt düzenleniyor" : "Yeni kayıt"}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Personel
+                    <select value={unpaidLeaveForm.staffId} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Yıl
+                    <input type="number" value={unpaidLeaveForm.year} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, year: Number(event.target.value) }))} />
+                  </label>
+                  <label>
+                    İzin Türü
+                    <select value={unpaidLeaveForm.leaveType} disabled>
+                      <option value="unpaid">Ücretsiz izin</option>
+                    </select>
+                  </label>
+                  <label>
+                    Başlangıç
+                    <input type="date" value={unpaidLeaveForm.startDate} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, startDate: event.target.value, year: Number(event.target.value.slice(0, 4)) || previous.year }))} />
+                  </label>
+                  <label>
+                    Bitiş
+                    <input type="date" value={unpaidLeaveForm.endDate} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, endDate: event.target.value }))} />
+                  </label>
+                  <label>
+                    Kullanılan Gün
+                    <input value={countLeaveDays(unpaidLeaveForm.startDate, unpaidLeaveForm.endDate)} readOnly />
+                  </label>
+                  <label>
+                    Hak Edilen Gün
+                    <input type="number" min="0" value={unpaidLeaveForm.entitlementDays} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, entitlementDays: Number(event.target.value) }))} />
+                  </label>
+                  <label>
+                    Durum
+                    <select value={unpaidLeaveForm.status} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, status: event.target.value as LeaveStatus }))}>
+                      <option value="planned">Planlandı</option>
+                      <option value="used">Kullanıldı</option>
+                      <option value="cancelled">İptal</option>
+                    </select>
+                  </label>
+                  <label>
+                    Not
+                    <textarea value={unpaidLeaveForm.notes} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Kaydet
+                    </button>
+                    <button className="secondary-action" type="button" onClick={() => void handleDownloadUnpaidLeavePdf()} disabled={busy}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF İndir
+                    </button>
+                    {unpaidLeaveForm.id && (
+                      <button className="secondary-action" type="button" onClick={resetUnpaidLeaveForm}>
+                        <X size={18} aria-hidden="true" />
+                        Vazgeç
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="data-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>{unpaidLeaveYear} Ücretsiz İzin Özeti</h2>
+                    <span>Ücretsiz izin türündeki planlanan ve kullanılan günler hesaplanır</span>
+                  </div>
+                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                    <RefreshCw size={18} aria-hidden="true" />
+                    Yenile
+                  </button>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table summary-table">
+                    <thead>
+                      <tr>
+                        <th>Personel</th>
+                        <th>Hak</th>
+                        <th>Kullanılan</th>
+                        <th>Planlanan</th>
+                        <th>Kalan</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {unpaidLeaveSummaries.map((row) => (
+                        <tr key={row.staff.id}>
+                          <td>
+                            <strong>{row.staff.name}</strong>
+                            <span>{row.staff.department}</span>
+                          </td>
+                          <td>{row.entitlement}</td>
+                          <td>{row.used}</td>
+                          <td>{row.planned}</td>
+                          <td>{row.remaining}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!unpaidLeaveSummaries.length && <div className="empty-state">Bu yıl için ücretsiz izin özeti bulunmuyor.</div>}
+              </section>
+            </section>
+
+            <section className="data-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Ücretsiz İzin Kayıtları</h2>
+                  <span>Pazar günleri izin gününden düşülmez</span>
+                </div>
+              </div>
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th>Personel</th>
+                      <th>Yıl</th>
+                      <th>Tür</th>
+                      <th>Tarih</th>
+                      <th>Gün</th>
+                      <th>Durum</th>
+                      <th>Not</th>
+                      <th aria-label="İşlem" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unpaidLeaveRecords.map((record) => (
+                      <tr key={record.id}>
+                        <td>
+                          <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                          <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                        </td>
+                        <td>{record.year}</td>
+                        <td>{annualLeaveTypeLabels[record.leaveType]}</td>
+                        <td>{record.startDate} - {record.endDate}</td>
+                        <td>{record.usedDays}</td>
+                        <td><span className="status-toggle">{leaveStatusLabels[record.status]}</span></td>
+                        <td>{record.notes}</td>
+                        <td>
+                          <div className="row-actions">
+                            <button className="icon-button" onClick={() => handleEditUnpaidLeave(record)} title="Düzenle" aria-label="Ücretsiz izin kaydını düzenle">
+                              <Edit3 size={17} />
+                            </button>
+                            <button className="icon-button danger" onClick={() => void handleDeleteUnpaidLeave(record)} title="Sil" aria-label="Ücretsiz izin kaydını sil">
+                              <Trash2 size={17} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {!unpaidLeaveRecords.length && <div className="empty-state">Ücretsiz izin kaydı bulunmuyor.</div>}
             </section>
           </main>
         )}
