@@ -107,7 +107,7 @@ type TabKey =
   | "staff"
   | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
-type PrintMode = "signature" | "holidayWork" | "incapacity";
+type PrintMode = "signature" | "holidayWork" | "incapacity" | "annualLeave" | "unpaidLeave";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -649,6 +649,8 @@ function App() {
   const [printMode, setPrintMode] = useState<PrintMode>("signature");
   const [incapacityReportMonth, setIncapacityReportMonth] = useState(todayIso().slice(0, 7));
   const [holidayReportMonth, setHolidayReportMonth] = useState(todayIso().slice(0, 7));
+  const [annualLeaveReportMonth, setAnnualLeaveReportMonth] = useState(todayIso().slice(0, 7));
+  const [unpaidLeaveReportMonth, setUnpaidLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [excludedFixedHolidayStaffIds, setExcludedFixedHolidayStaffIds] = useState<string[]>([]);
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
@@ -997,6 +999,20 @@ function App() {
     }),
     [annualLeaveRowsForYear, annualLeaveSummaries],
   );
+  const annualLeaveRowsForMonth = useMemo(() => {
+    const monthStart = `${annualLeaveReportMonth}-01`;
+    const monthEnd = getMonthEndIso(annualLeaveReportMonth);
+    return annualLeaveTrackingRecords.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
+  }, [annualLeaveReportMonth, annualLeaveTrackingRecords]);
+  const annualLeaveReportStats = useMemo(
+    () => ({
+      records: annualLeaveRowsForMonth.length,
+      used: annualLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
+      planned: annualLeaveRowsForMonth.filter((record) => record.status === "planned").reduce((sum, record) => sum + record.usedDays, 0),
+      cancelled: annualLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
+    }),
+    [annualLeaveRowsForMonth],
+  );
   const upcomingAnnualLeaves = useMemo(() => {
     const start = todayIso();
     const end = addDaysIso(start, 14);
@@ -1060,6 +1076,20 @@ function App() {
       remaining: unpaidLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
     }),
     [unpaidLeaveRowsForYear, unpaidLeaveSummaries],
+  );
+  const unpaidLeaveRowsForMonth = useMemo(() => {
+    const monthStart = `${unpaidLeaveReportMonth}-01`;
+    const monthEnd = getMonthEndIso(unpaidLeaveReportMonth);
+    return unpaidLeaveRecords.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
+  }, [unpaidLeaveRecords, unpaidLeaveReportMonth]);
+  const unpaidLeaveReportStats = useMemo(
+    () => ({
+      records: unpaidLeaveRowsForMonth.length,
+      used: unpaidLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
+      planned: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned").reduce((sum, record) => sum + record.usedDays, 0),
+      cancelled: unpaidLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
+    }),
+    [unpaidLeaveRowsForMonth],
   );
 
   async function refreshStaff() {
@@ -2548,6 +2578,55 @@ function App() {
     }, 0);
   }
 
+  function getLeaveExportRows(records: AnnualLeaveRecord[]) {
+    return [
+      ["Personel", "Departman", "Ünvan", "Yıl", "Tür", "Başlangıç", "Bitiş", "Gün", "Durum", "Not"],
+      ...records.map((record) => {
+        const member = staffById.get(record.staffId);
+        return [
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          record.year,
+          annualLeaveTypeLabels[record.leaveType],
+          record.startDate,
+          record.endDate,
+          record.usedDays,
+          leaveStatusLabels[record.status],
+          record.notes,
+        ];
+      }),
+    ];
+  }
+
+  function handleExportAnnualLeaveExcel() {
+    downloadExcelFile(`yillik-izin-raporu-${annualLeaveReportMonth}.xls`, [
+      { title: `${formatMonthTr(annualLeaveReportMonth)} Yıllık İzin Raporu`, rows: getLeaveExportRows(annualLeaveRowsForMonth) },
+    ]);
+  }
+
+  function handleExportUnpaidLeaveExcel() {
+    downloadExcelFile(`ucretsiz-izin-raporu-${unpaidLeaveReportMonth}.xls`, [
+      { title: `${formatMonthTr(unpaidLeaveReportMonth)} Ücretsiz İzin Raporu`, rows: getLeaveExportRows(unpaidLeaveRowsForMonth) },
+    ]);
+  }
+
+  function handlePrintAnnualLeaveReport() {
+    setPrintMode("annualLeave");
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode("signature");
+    }, 0);
+  }
+
+  function handlePrintUnpaidLeaveReport() {
+    setPrintMode("unpaidLeave");
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode("signature");
+    }, 0);
+  }
+
   if (!authChecked) {
     return <AuthStatusScreen title="Oturum kontrol ediliyor" />;
   }
@@ -3721,6 +3800,20 @@ function App() {
                   <h2>İzin Kayıtları</h2>
                   <span>Pazar günleri izin gününden düşülmez</span>
                 </div>
+                <div className="button-row">
+                  <label className="compact-month-filter">
+                    Ay
+                    <input type="month" value={annualLeaveReportMonth} onChange={(event) => setAnnualLeaveReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                  </label>
+                  <button className="secondary-action" onClick={handleExportAnnualLeaveExcel} disabled={!annualLeaveRowsForMonth.length}>
+                    <FileSpreadsheet size={18} aria-hidden="true" />
+                    Excel
+                  </button>
+                  <button className="secondary-action" onClick={handlePrintAnnualLeaveReport} disabled={!annualLeaveRowsForMonth.length}>
+                    <FileDown size={18} aria-hidden="true" />
+                    PDF
+                  </button>
+                </div>
               </div>
               <div className="table-scroll">
                 <table className="data-table">
@@ -3899,6 +3992,20 @@ function App() {
                 <div>
                   <h2>Ücretsiz İzin Kayıtları</h2>
                   <span>Pazar günleri izin gününden düşülmez</span>
+                </div>
+                <div className="button-row">
+                  <label className="compact-month-filter">
+                    Ay
+                    <input type="month" value={unpaidLeaveReportMonth} onChange={(event) => setUnpaidLeaveReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                  </label>
+                  <button className="secondary-action" onClick={handleExportUnpaidLeaveExcel} disabled={!unpaidLeaveRowsForMonth.length}>
+                    <FileSpreadsheet size={18} aria-hidden="true" />
+                    Excel
+                  </button>
+                  <button className="secondary-action" onClick={handlePrintUnpaidLeaveReport} disabled={!unpaidLeaveRowsForMonth.length}>
+                    <FileDown size={18} aria-hidden="true" />
+                    PDF
+                  </button>
                 </div>
               </div>
               <div className="table-scroll">
@@ -4676,6 +4783,22 @@ function App() {
             stats={holidayWorkStats}
             reportMonth={holidayReportMonth}
           />
+        ) : printMode === "annualLeave" ? (
+          <LeavePrintReport
+            records={annualLeaveRowsForMonth}
+            staffById={staffById}
+            stats={annualLeaveReportStats}
+            reportMonth={annualLeaveReportMonth}
+            title="Yıllık İzin Raporu"
+          />
+        ) : printMode === "unpaidLeave" ? (
+          <LeavePrintReport
+            records={unpaidLeaveRowsForMonth}
+            staffById={staffById}
+            stats={unpaidLeaveReportStats}
+            reportMonth={unpaidLeaveReportMonth}
+            title="Ücretsiz İzin Raporu"
+          />
         ) : (
           printPages.map((pageStaff, index) => (
             <SheetPage
@@ -5183,6 +5306,85 @@ function ReportCharts({
         </div>
       </div>
     </section>
+  );
+}
+
+function LeavePrintReport({
+  records,
+  staffById,
+  stats,
+  reportMonth,
+  title,
+}: {
+  records: AnnualLeaveRecord[];
+  staffById: Map<string, StaffMember>;
+  stats: { records: number; used: number; planned: number; cancelled: number };
+  reportMonth: string;
+  title: string;
+}) {
+  const sortedRecords = [...records].sort((a, b) => a.startDate.localeCompare(b.startDate) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
+
+  return (
+    <article className="holiday-report-page">
+      <header className="holiday-report-header">
+        <div>
+          <strong>{formatMonthTr(reportMonth)} {title}</strong>
+          <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
+        </div>
+        <CalendarCheck size={26} aria-hidden="true" />
+      </header>
+      <section className="holiday-report-summary">
+        <div>
+          <span>Kayıt</span>
+          <strong>{stats.records}</strong>
+        </div>
+        <div>
+          <span>Kullanılan</span>
+          <strong>{stats.used}</strong>
+        </div>
+        <div>
+          <span>Planlanan</span>
+          <strong>{stats.planned}</strong>
+        </div>
+        <div>
+          <span>İptal</span>
+          <strong>{stats.cancelled}</strong>
+        </div>
+      </section>
+      <table className="holiday-report-table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Personel</th>
+            <th>Departman</th>
+            <th>Ünvan</th>
+            <th>Tür</th>
+            <th>Tarih</th>
+            <th>Gün</th>
+            <th>Durum</th>
+            <th>Not</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
+            return (
+              <tr key={record.id}>
+                <td>{index + 1}</td>
+                <td>{member?.name ?? ""}</td>
+                <td>{member?.department ?? ""}</td>
+                <td>{member?.title ?? ""}</td>
+                <td>{annualLeaveTypeLabels[record.leaveType]}</td>
+                <td>{record.startDate} - {record.endDate}</td>
+                <td>{record.usedDays}</td>
+                <td>{leaveStatusLabels[record.status]}</td>
+                <td>{record.notes}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </article>
   );
 }
 
