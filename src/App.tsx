@@ -651,6 +651,9 @@ function App() {
   const [holidayReportMonth, setHolidayReportMonth] = useState(todayIso().slice(0, 7));
   const [annualLeaveReportMonth, setAnnualLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [unpaidLeaveReportMonth, setUnpaidLeaveReportMonth] = useState(todayIso().slice(0, 7));
+  const [incapacityReportStaffId, setIncapacityReportStaffId] = useState("all");
+  const [annualLeaveReportStaffId, setAnnualLeaveReportStaffId] = useState("all");
+  const [unpaidLeaveReportStaffId, setUnpaidLeaveReportStaffId] = useState("all");
   const [excludedFixedHolidayStaffIds, setExcludedFixedHolidayStaffIds] = useState<string[]>([]);
   const [staffSearch, setStaffSearch] = useState("");
   const [staffDepartment, setStaffDepartment] = useState("all");
@@ -916,8 +919,13 @@ function App() {
     const monthStart = `${incapacityReportMonth}-01`;
     const monthEnd = getMonthEndIso(incapacityReportMonth);
 
-    return incapacityReports.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
-  }, [incapacityReportMonth, incapacityReports]);
+    return incapacityReports.filter(
+      (record) =>
+        record.startDate <= monthEnd &&
+        record.endDate >= monthStart &&
+        (incapacityReportStaffId === "all" || record.staffId === incapacityReportStaffId),
+    );
+  }, [incapacityReportMonth, incapacityReportStaffId, incapacityReports]);
   const incapacityStats = useMemo(
     () => ({
       total: incapacityRowsForMonth.length,
@@ -1002,8 +1010,13 @@ function App() {
   const annualLeaveRowsForMonth = useMemo(() => {
     const monthStart = `${annualLeaveReportMonth}-01`;
     const monthEnd = getMonthEndIso(annualLeaveReportMonth);
-    return annualLeaveTrackingRecords.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
-  }, [annualLeaveReportMonth, annualLeaveTrackingRecords]);
+    return annualLeaveTrackingRecords.filter(
+      (record) =>
+        record.startDate <= monthEnd &&
+        record.endDate >= monthStart &&
+        (annualLeaveReportStaffId === "all" || record.staffId === annualLeaveReportStaffId),
+    );
+  }, [annualLeaveReportMonth, annualLeaveReportStaffId, annualLeaveTrackingRecords]);
   const annualLeaveReportStats = useMemo(
     () => ({
       records: annualLeaveRowsForMonth.length,
@@ -1080,8 +1093,13 @@ function App() {
   const unpaidLeaveRowsForMonth = useMemo(() => {
     const monthStart = `${unpaidLeaveReportMonth}-01`;
     const monthEnd = getMonthEndIso(unpaidLeaveReportMonth);
-    return unpaidLeaveRecords.filter((record) => record.startDate <= monthEnd && record.endDate >= monthStart);
-  }, [unpaidLeaveRecords, unpaidLeaveReportMonth]);
+    return unpaidLeaveRecords.filter(
+      (record) =>
+        record.startDate <= monthEnd &&
+        record.endDate >= monthStart &&
+        (unpaidLeaveReportStaffId === "all" || record.staffId === unpaidLeaveReportStaffId),
+    );
+  }, [unpaidLeaveRecords, unpaidLeaveReportMonth, unpaidLeaveReportStaffId]);
   const unpaidLeaveReportStats = useMemo(
     () => ({
       records: unpaidLeaveRowsForMonth.length,
@@ -1250,6 +1268,18 @@ function App() {
   useEffect(() => {
     setBulkSelectedIds((previous) => previous.filter((id) => staffById.has(id)));
   }, [staffById]);
+
+  useEffect(() => {
+    if (incapacityReportStaffId !== "all" && !staffById.has(incapacityReportStaffId)) {
+      setIncapacityReportStaffId("all");
+    }
+    if (annualLeaveReportStaffId !== "all" && !staffById.has(annualLeaveReportStaffId)) {
+      setAnnualLeaveReportStaffId("all");
+    }
+    if (unpaidLeaveReportStaffId !== "all" && !staffById.has(unpaidLeaveReportStaffId)) {
+      setUnpaidLeaveReportStaffId("all");
+    }
+  }, [annualLeaveReportStaffId, incapacityReportStaffId, staffById, unpaidLeaveReportStaffId]);
 
   useEffect(() => {
     if (!activeStaff.length) return;
@@ -3379,6 +3409,15 @@ function App() {
                       Ay
                       <input type="month" value={incapacityReportMonth} onChange={(event) => setIncapacityReportMonth(event.target.value || todayIso().slice(0, 7))} />
                     </label>
+                    <label className="compact-month-filter">
+                      Personel
+                      <select value={incapacityReportStaffId} onChange={(event) => setIncapacityReportStaffId(event.target.value)}>
+                        <option value="all">Tüm personel</option>
+                        {activeStaff.map((member) => (
+                          <option key={member.id} value={member.id}>{member.name}</option>
+                        ))}
+                      </select>
+                    </label>
                     <button className="secondary-action" onClick={handleExportIncapacityExcel} disabled={!incapacityRowsForMonth.length}>
                       <FileSpreadsheet size={18} aria-hidden="true" />
                       Excel
@@ -3805,6 +3844,15 @@ function App() {
                     Ay
                     <input type="month" value={annualLeaveReportMonth} onChange={(event) => setAnnualLeaveReportMonth(event.target.value || todayIso().slice(0, 7))} />
                   </label>
+                  <label className="compact-month-filter">
+                    Personel
+                    <select value={annualLeaveReportStaffId} onChange={(event) => setAnnualLeaveReportStaffId(event.target.value)}>
+                      <option value="all">Tüm personel</option>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
                   <button className="secondary-action" onClick={handleExportAnnualLeaveExcel} disabled={!annualLeaveRowsForMonth.length}>
                     <FileSpreadsheet size={18} aria-hidden="true" />
                     Excel
@@ -3997,6 +4045,15 @@ function App() {
                   <label className="compact-month-filter">
                     Ay
                     <input type="month" value={unpaidLeaveReportMonth} onChange={(event) => setUnpaidLeaveReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                  </label>
+                  <label className="compact-month-filter">
+                    Personel
+                    <select value={unpaidLeaveReportStaffId} onChange={(event) => setUnpaidLeaveReportStaffId(event.target.value)}>
+                      <option value="all">Tüm personel</option>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
                   </label>
                   <button className="secondary-action" onClick={handleExportUnpaidLeaveExcel} disabled={!unpaidLeaveRowsForMonth.length}>
                     <FileSpreadsheet size={18} aria-hidden="true" />
