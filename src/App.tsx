@@ -426,8 +426,65 @@ function formatDateDotTr(date: string) {
   return `${day}.${month}.${year}`;
 }
 
+function formatWeekdayTr(date: string) {
+  if (!date) return "";
+  return new Intl.DateTimeFormat("tr-TR", { weekday: "long" }).format(new Date(`${date}T12:00:00`));
+}
+
 function getNextCalendarDateIso(date: string) {
   return addDaysIso(date, 1);
+}
+
+function splitStaffName(fullName: string) {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length <= 1) return { firstName: fullName.trim(), lastName: "" };
+  return {
+    firstName: parts.slice(0, -1).join(" "),
+    lastName: parts[parts.length - 1],
+  };
+}
+
+function numberToTurkishText(value: number) {
+  const words: Record<number, string> = {
+    0: "Sıfır",
+    1: "Bir",
+    2: "İki",
+    3: "Üç",
+    4: "Dört",
+    5: "Beş",
+    6: "Altı",
+    7: "Yedi",
+    8: "Sekiz",
+    9: "Dokuz",
+    10: "On",
+    11: "On bir",
+    12: "On iki",
+    13: "On üç",
+    14: "On dört",
+    15: "On beş",
+    16: "On altı",
+    17: "On yedi",
+    18: "On sekiz",
+    19: "On dokuz",
+    20: "Yirmi",
+    21: "Yirmi bir",
+    22: "Yirmi iki",
+    23: "Yirmi üç",
+    24: "Yirmi dört",
+    25: "Yirmi beş",
+    26: "Yirmi altı",
+    27: "Yirmi yedi",
+    28: "Yirmi sekiz",
+    29: "Yirmi dokuz",
+    30: "Otuz",
+    31: "Otuz bir",
+  };
+  return words[value] ?? String(value);
+}
+
+function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
+  if (record.status === "planned" && record.endDate <= todayIso()) return "Bitti";
+  return leaveStatusLabels[record.status];
 }
 
 function safeFilename(value: string) {
@@ -1021,7 +1078,8 @@ function App() {
     () => ({
       records: annualLeaveRowsForMonth.length,
       used: annualLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
-      planned: annualLeaveRowsForMonth.filter((record) => record.status === "planned").reduce((sum, record) => sum + record.usedDays, 0),
+      planned: annualLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
+      completed: annualLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: annualLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [annualLeaveRowsForMonth],
@@ -1048,7 +1106,7 @@ function App() {
     [unpaidLeaveRecords, unpaidLeaveYear],
   );
   const unpaidLeaveSummaries = useMemo(() => {
-    const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
+    const summary = new Map<string, { staff: StaffMember; used: number; planned: number; completed: number }>();
 
     unpaidLeaveRowsForYear.forEach((record) => {
       const member = staffById.get(record.staffId);
@@ -1058,25 +1116,23 @@ function App() {
         summary.get(record.staffId) ??
         {
           staff: member,
-          entitlement: record.entitlementDays || unpaidLeaveForm.entitlementDays,
           used: 0,
           planned: 0,
-          remaining: 0,
+          completed: 0,
         };
 
-      current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0, unpaidLeaveForm.entitlementDays || 0);
       if (record.status !== "cancelled") {
         if (record.status === "used") current.used += record.usedDays;
-        if (record.status === "planned") current.planned += record.usedDays;
+        if (record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti") current.completed += record.usedDays;
+        if (record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti") current.planned += record.usedDays;
       }
-      current.remaining = Math.max(0, current.entitlement - current.used - current.planned);
       summary.set(record.staffId, current);
     });
 
     return Array.from(summary.values()).sort(
       (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
     );
-  }, [staffById, staffRankById, unpaidLeaveForm.entitlementDays, unpaidLeaveRowsForYear]);
+  }, [staffById, staffRankById, unpaidLeaveRowsForYear]);
   const unpaidLeaveStats = useMemo(
     () => ({
       records: unpaidLeaveRowsForYear.length,
@@ -1084,11 +1140,13 @@ function App() {
         .filter((record) => record.status === "used")
         .reduce((sum, record) => sum + record.usedDays, 0),
       planned: unpaidLeaveRowsForYear
-        .filter((record) => record.status === "planned")
+        .filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti")
         .reduce((sum, record) => sum + record.usedDays, 0),
-      remaining: unpaidLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
+      completed: unpaidLeaveRowsForYear
+        .filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti")
+        .reduce((sum, record) => sum + record.usedDays, 0),
     }),
-    [unpaidLeaveRowsForYear, unpaidLeaveSummaries],
+    [unpaidLeaveRowsForYear],
   );
   const unpaidLeaveRowsForMonth = useMemo(() => {
     const monthStart = `${unpaidLeaveReportMonth}-01`;
@@ -1104,7 +1162,8 @@ function App() {
     () => ({
       records: unpaidLeaveRowsForMonth.length,
       used: unpaidLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
-      planned: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned").reduce((sum, record) => sum + record.usedDays, 0),
+      planned: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
+      completed: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: unpaidLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [unpaidLeaveRowsForMonth],
@@ -2367,7 +2426,102 @@ function App() {
   }
 
   async function handleDownloadUnpaidLeavePdf() {
-    await handleDownloadLeavePdf(unpaidLeaveForm, "ÜCRETSİZ İZİN FORMU", "ucretsiz-izin-formu");
+    const staffId = unpaidLeaveForm.staffId || activeStaff[0]?.id || "";
+    const staffMember = staffById.get(staffId);
+    if (!staffMember) {
+      setMessage("PDF için personel seçin.");
+      return;
+    }
+
+    const usedDays = countLeaveDays(unpaidLeaveForm.startDate, unpaidLeaveForm.endDate);
+    if (!usedDays) {
+      setMessage("PDF için geçerli tarih aralığı girin.");
+      return;
+    }
+
+    const pdfMakeModule = await import("pdfmake/build/pdfmake");
+    const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+    const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+    const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
+    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
+
+    const { firstName, lastName } = splitStaffName(staffMember.name);
+    const startDate = formatDateDotTr(unpaidLeaveForm.startDate);
+    const endDate = formatDateDotTr(unpaidLeaveForm.endDate);
+    const returnDate = formatDateDotTr(getNextCalendarDateIso(unpaidLeaveForm.endDate));
+    const startDayName = formatWeekdayTr(unpaidLeaveForm.startDate);
+    const borderColor = "#111111";
+    const cell = (text: string | number, bold = false) => ({ text: String(text ?? ""), bold, margin: [0, 2, 0, 2] });
+    const centerCell = (text: string, bold = true) => ({ text, bold, alignment: "center", margin: [0, 1, 0, 1] });
+    const layout = annualLeavePdfLayout(borderColor);
+
+    const docDefinition = {
+      pageSize: "A4",
+      pageMargins: [45, 56, 45, 45],
+      defaultStyle: { font: "Roboto", fontSize: 10.2, lineHeight: 1.05 },
+      styles: {
+        title: { fontSize: 11, bold: true, alignment: "center" },
+        requestText: { fontSize: 10.5, margin: [0, 14, 0, 0] },
+        boldCenter: { bold: true, alignment: "center" },
+      },
+      content: [
+        {
+          table: { widths: ["*"], body: [[{ text: "ÜCRETSİZ İZİN FORMU", style: "title", margin: [0, 1, 0, 1] }]] },
+          layout,
+          margin: [0, 0, 0, 12],
+        },
+        {
+          table: {
+            widths: ["40.5%", "3%", "56.5%"],
+            heights: (rowIndex: number) => (rowIndex === 7 ? 30 : 22),
+            body: [
+              [cell("TARİH"), "", cell(startDate)],
+              [cell("ADI"), "", cell(firstName)],
+              [cell("SOYADI"), "", cell(lastName)],
+              [cell("T.C KİMLİK NO"), "", cell(staffMember.nationalId ?? "")],
+              [cell("UNVANI"), "", cell(staffMember.title)],
+              [cell("ÜCRETSİZ İZNE ÇIKACAĞI TARİH"), "", cell(startDate)],
+              [cell("ÜCRETSİZ İZİNDEN DÖNÜŞ TARİHİ"), "", cell(endDate)],
+              [cell("TALEP EDEN ÇALIŞANIN İMZASI"), "", ""],
+            ],
+          },
+          layout,
+          margin: [0, 0, 0, 12],
+        },
+        {
+          text: `Yukarıda belirttiğim tarihler arasında kişisel işlerim nedeniyle toplam ${usedDays} (${numberToTurkishText(usedDays)}) gün\nücretsiz izin kullandım. ${returnDate} Tarihinde işbaşı yaptım. Gereğinin yapılmasını arz ederim.`,
+          style: "requestText",
+        },
+        { text: "Saygılarımla,", alignment: "center", margin: [0, 18, 0, 0] },
+        { text: "Adı Soyadı - İmza", style: "boldCenter", margin: [0, 0, 0, 58] },
+        { text: "***ŞİRKET İDARESİ TARAFINDAN DOLDURULACAKTIR ***", style: "boldCenter", margin: [0, 0, 0, 0] },
+        {
+          table: {
+            widths: ["*"],
+            body: [[centerCell("ÜCRETSİZ İZİN HESABI")]],
+          },
+          layout,
+          margin: [0, 0, 0, 0],
+        },
+        {
+          table: {
+            widths: ["40.5%", "59.5%"],
+            body: [
+              [cell("ÜCRETSİZ İZİNE ÇIKIŞ TARİHİ"), cell(startDate)],
+              [cell("ÜCRETSİZ İZNE ÇIKTIĞI GÜN"), cell(startDayName)],
+              [cell("TOPLAM İZİN SÜRESİ"), cell(usedDays)],
+              [cell("İŞ BAŞI TARİHİ"), cell(returnDate)],
+            ],
+          },
+          layout,
+          margin: [0, 0, 0, 48],
+        },
+        { text: `İlgili Personel ${endDate} tarihinde izinden dönmüş ve ${returnDate} tarihinde görevine başlamıştır.`, fontSize: 9.4, margin: [0, 0, 0, 20] },
+        { text: "Onay", style: "boldCenter" },
+      ],
+    };
+
+    pdfMake.createPdf(docDefinition).download(`${safeFilename(staffMember.name || "personel")}-ucretsiz-izin-formu-${unpaidLeaveForm.startDate}.pdf`);
   }
 
   async function handleLoadReport() {
@@ -2622,7 +2776,7 @@ function App() {
           record.startDate,
           record.endDate,
           record.usedDays,
-          leaveStatusLabels[record.status],
+          getLeaveDisplayStatus(record),
           record.notes,
         ];
       }),
@@ -3888,7 +4042,7 @@ function App() {
                         <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                         <td>{record.startDate} - {record.endDate}</td>
                         <td>{record.usedDays}</td>
-                        <td><span className="status-toggle">{leaveStatusLabels[record.status]}</span></td>
+                        <td><span className="status-toggle">{getLeaveDisplayStatus(record)}</span></td>
                         <td>{record.notes}</td>
                         <td>
                           <div className="row-actions">
@@ -3916,7 +4070,7 @@ function App() {
               <Metric label="Kayıt" value={unpaidLeaveStats.records} />
               <Metric label="Kullanılan" value={unpaidLeaveStats.used} tone="amber" />
               <Metric label="Planlanan" value={unpaidLeaveStats.planned} tone="blue" />
-              <Metric label="Kalan" value={unpaidLeaveStats.remaining} tone="green" />
+              <Metric label="Bitti" value={unpaidLeaveStats.completed} tone="green" />
             </section>
 
             <section className="workspace two-column">
@@ -3959,10 +4113,6 @@ function App() {
                     <input value={countLeaveDays(unpaidLeaveForm.startDate, unpaidLeaveForm.endDate)} readOnly />
                   </label>
                   <label>
-                    Hak Edilen Gün
-                    <input type="number" min="0" value={unpaidLeaveForm.entitlementDays} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, entitlementDays: Number(event.target.value) }))} />
-                  </label>
-                  <label>
                     Durum
                     <select value={unpaidLeaveForm.status} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, status: event.target.value as LeaveStatus }))}>
                       <option value="planned">Planlandı</option>
@@ -3997,7 +4147,7 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h2>{unpaidLeaveYear} Ücretsiz İzin Özeti</h2>
-                    <span>Ücretsiz izin türündeki planlanan ve kullanılan günler hesaplanır</span>
+                    <span>Ücretsiz izin türündeki kullanılan, planlanan ve biten günler hesaplanır</span>
                   </div>
                   <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
                     <RefreshCw size={18} aria-hidden="true" />
@@ -4009,10 +4159,9 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
-                        <th>Hak</th>
                         <th>Kullanılan</th>
                         <th>Planlanan</th>
-                        <th>Kalan</th>
+                        <th>Bitti</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -4022,10 +4171,9 @@ function App() {
                             <strong>{row.staff.name}</strong>
                             <span>{row.staff.department}</span>
                           </td>
-                          <td>{row.entitlement}</td>
                           <td>{row.used}</td>
                           <td>{row.planned}</td>
-                          <td>{row.remaining}</td>
+                          <td>{row.completed}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -4090,7 +4238,7 @@ function App() {
                         <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                         <td>{record.startDate} - {record.endDate}</td>
                         <td>{record.usedDays}</td>
-                        <td><span className="status-toggle">{leaveStatusLabels[record.status]}</span></td>
+                        <td><span className="status-toggle">{getLeaveDisplayStatus(record)}</span></td>
                         <td>{record.notes}</td>
                         <td>
                           <div className="row-actions">
@@ -5375,7 +5523,7 @@ function LeavePrintReport({
 }: {
   records: AnnualLeaveRecord[];
   staffById: Map<string, StaffMember>;
-  stats: { records: number; used: number; planned: number; cancelled: number };
+  stats: { records: number; used: number; planned: number; completed: number; cancelled: number };
   reportMonth: string;
   title: string;
 }) {
@@ -5404,8 +5552,8 @@ function LeavePrintReport({
           <strong>{stats.planned}</strong>
         </div>
         <div>
-          <span>İptal</span>
-          <strong>{stats.cancelled}</strong>
+          <span>Bitti</span>
+          <strong>{stats.completed}</strong>
         </div>
       </section>
       <table className="holiday-report-table">
@@ -5434,7 +5582,7 @@ function LeavePrintReport({
                 <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                 <td>{record.startDate} - {record.endDate}</td>
                 <td>{record.usedDays}</td>
-                <td>{leaveStatusLabels[record.status]}</td>
+                <td>{getLeaveDisplayStatus(record)}</td>
                 <td>{record.notes}</td>
               </tr>
             );
