@@ -432,7 +432,8 @@ function formatWeekdayTr(date: string) {
 }
 
 function getNextCalendarDateIso(date: string) {
-  return addDaysIso(date, 1);
+  const nextDate = addDaysIso(date, 1);
+  return isSundayIso(nextDate) ? addDaysIso(nextDate, 1) : nextDate;
 }
 
 function splitStaffName(fullName: string) {
