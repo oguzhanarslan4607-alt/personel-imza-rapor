@@ -2,7 +2,7 @@ export type AttendanceStatus = "present" | "late" | "absent" | "excused";
 export type IncapacityStatus = "active" | "completed" | "cancelled";
 export type HolidayCompensationType = "paid" | "leave" | "none";
 export type AnnualLeaveType = "annual" | "excuse" | "unpaid" | "other";
-export type LeaveStatus = "planned" | "used" | "cancelled";
+export type LeaveStatus = "planned" | "used" | "completed" | "cancelled";
 
 export type StaffMember = {
   id: string;

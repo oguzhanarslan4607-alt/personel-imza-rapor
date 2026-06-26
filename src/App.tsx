@@ -200,6 +200,7 @@ const annualLeaveTypeLabels: Record<AnnualLeaveType, string> = {
 const leaveStatusLabels: Record<LeaveStatus, string> = {
   planned: "Planlandı",
   used: "Kullanıldı",
+  completed: "Bitti",
   cancelled: "İptal",
 };
 
@@ -484,7 +485,7 @@ function numberToTurkishText(value: number) {
 }
 
 function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
-  if (record.status === "planned" && record.endDate <= todayIso()) return "Bitti";
+  if (record.status === "planned" && record.endDate < todayIso()) return "Bitti";
   return leaveStatusLabels[record.status];
 }
 
@@ -1124,7 +1125,7 @@ function App() {
 
       if (record.status !== "cancelled") {
         if (record.status === "used") current.used += record.usedDays;
-        if (record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti") current.completed += record.usedDays;
+        if (record.status === "completed") current.completed += record.usedDays;
         if (record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti") current.planned += record.usedDays;
       }
       summary.set(record.staffId, current);
@@ -1144,7 +1145,7 @@ function App() {
         .filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti")
         .reduce((sum, record) => sum + record.usedDays, 0),
       completed: unpaidLeaveRowsForYear
-        .filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti")
+        .filter((record) => record.status === "completed")
         .reduce((sum, record) => sum + record.usedDays, 0),
     }),
     [unpaidLeaveRowsForYear],
@@ -1164,7 +1165,7 @@ function App() {
       records: unpaidLeaveRowsForMonth.length,
       used: unpaidLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
       planned: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
-      completed: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
+      completed: unpaidLeaveRowsForMonth.filter((record) => record.status === "completed").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: unpaidLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [unpaidLeaveRowsForMonth],
@@ -1318,6 +1319,27 @@ function App() {
     void refreshDeletedAttendance();
     void refreshHrRecords();
   }, [canUseApp, admin?.uid]);
+
+  useEffect(() => {
+    if (!canUseApp) return;
+
+    const expiredUnpaidLeaves = annualLeaveRecords.filter(
+      (record) => record.leaveType === "unpaid" && record.status === "planned" && record.endDate < todayIso(),
+    );
+    if (!expiredUnpaidLeaves.length) return;
+
+    void Promise.all(
+      expiredUnpaidLeaves.map((record) =>
+        saveAnnualLeaveRecord({
+          ...record,
+          status: "completed",
+          updatedAt: new Date().toISOString(),
+        }),
+      ),
+    )
+      .then(() => refreshHrRecords())
+      .catch((error) => console.warn("Ücretsiz izin durumları güncellenemedi.", error));
+  }, [annualLeaveRecords, canUseApp]);
 
   useEffect(() => {
     if ((!profileStaffId || !staffById.has(profileStaffId)) && activeStaff.length) {
@@ -2242,7 +2264,10 @@ function App() {
       endDate: unpaidLeaveForm.endDate,
       usedDays,
       entitlementDays: Number(unpaidLeaveForm.entitlementDays) || 0,
-      status: unpaidLeaveForm.status,
+      status:
+        unpaidLeaveForm.status === "planned" && unpaidLeaveForm.endDate < todayIso()
+          ? "completed"
+          : unpaidLeaveForm.status,
       notes: unpaidLeaveForm.notes.trim(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -4118,6 +4143,7 @@ function App() {
                     <select value={unpaidLeaveForm.status} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, status: event.target.value as LeaveStatus }))}>
                       <option value="planned">Planlandı</option>
                       <option value="used">Kullanıldı</option>
+                      <option value="completed">Bitti</option>
                       <option value="cancelled">İptal</option>
                     </select>
                   </label>
