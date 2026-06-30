@@ -44,6 +44,7 @@ import {
   deleteDeletedAttendance,
   deleteAttendanceRecord,
   deleteHolidayWorkRecord,
+  deleteHourlyLeaveRecord,
   deleteIncapacityReport,
   deleteStaffMember,
   firebaseConfigured,
@@ -56,6 +57,7 @@ import {
   loadDayLock,
   loadDeletedAttendance,
   loadHolidayWorkRecords,
+  loadHourlyLeaveRecords,
   loadIncapacityReports,
   loadPrintArchives,
   loadStaff,
@@ -67,6 +69,7 @@ import {
   saveDayLock,
   saveDeletedAttendance,
   saveHolidayWorkRecord,
+  saveHourlyLeaveRecord,
   saveIncapacityReport,
   savePrintArchive,
   saveStaffMember,
@@ -85,6 +88,8 @@ import type {
   AuditLogRecord,
   DayLockRecord,
   DeletedAttendanceRecord,
+  HourlyLeaveRecord,
+  HourlyLeaveStatus,
   HolidayCompensationType,
   HolidayWorkRecord,
   IncapacityReportRecord,
@@ -100,6 +105,7 @@ type TabKey =
   | "reports"
   | "incapacity"
   | "holidayWork"
+  | "hourlyLeave"
   | "annualLeave"
   | "unpaidLeave"
   | "profiles"
@@ -107,7 +113,7 @@ type TabKey =
   | "staff"
   | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
-type PrintMode = "signature" | "holidayWork" | "incapacity" | "annualLeave" | "unpaidLeave";
+type PrintMode = "signature" | "holidayWork" | "incapacity" | "annualLeave" | "unpaidLeave" | "hourlyLeave";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -153,6 +159,16 @@ type HolidayWorkGroup = {
   notes: string[];
   records: HolidayWorkRecord[];
 };
+type HourlyLeaveFormState = {
+  id: string;
+  staffId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  reason: string;
+  status: HourlyLeaveStatus;
+  notes: string;
+};
 type StaffInsight = {
   staff: StaffMember;
   counts: StatusCounts;
@@ -167,6 +183,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "reports", label: "Raporlar", icon: BarChart3 },
   { key: "incapacity", label: "İş Göremezlik Raporu", icon: FileSpreadsheet },
   { key: "holidayWork", label: "Resmi Tatil Çalışan", icon: CalendarDays },
+  { key: "hourlyLeave", label: "Saatlik İzin", icon: CalendarCheck },
   { key: "annualLeave", label: "Yıllık İzin Takibi", icon: CalendarCheck },
   { key: "unpaidLeave", label: "Ücretsiz İzin", icon: CalendarCheck },
   { key: "profiles", label: "Profil", icon: UserRound },
@@ -201,6 +218,11 @@ const leaveStatusLabels: Record<LeaveStatus, string> = {
   planned: "Planlandı",
   used: "Kullanıldı",
   completed: "Bitti",
+  cancelled: "İptal",
+};
+const hourlyLeaveStatusLabels: Record<HourlyLeaveStatus, string> = {
+  planned: "Planlandı",
+  used: "Kullanıldı",
   cancelled: "İptal",
 };
 
@@ -404,6 +426,22 @@ function calculateWorkHours(startTime: string, endTime: string) {
 
 function getHolidayWorkNetHours(record: HolidayWorkRecord) {
   return calculateWorkHours(record.startTime, record.endTime);
+}
+
+function calculateHourlyLeaveMinutes(startTime: string, endTime: string) {
+  if (!startTime || !endTime) return 0;
+  const start = timeToMinutes(startTime);
+  let end = timeToMinutes(endTime);
+  if (end <= start) end += 24 * 60;
+  return Math.max(0, end - start);
+}
+
+function formatLeaveDuration(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (hours && remainingMinutes) return `${hours} sa ${remainingMinutes} dk`;
+  if (hours) return `${hours} sa`;
+  return `${remainingMinutes} dk`;
 }
 
 function uniqueValues(values: string[]) {
@@ -708,9 +746,11 @@ function App() {
   const [printMode, setPrintMode] = useState<PrintMode>("signature");
   const [incapacityReportMonth, setIncapacityReportMonth] = useState(todayIso().slice(0, 7));
   const [holidayReportMonth, setHolidayReportMonth] = useState(todayIso().slice(0, 7));
+  const [hourlyLeaveReportMonth, setHourlyLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [annualLeaveReportMonth, setAnnualLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [unpaidLeaveReportMonth, setUnpaidLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [incapacityReportStaffId, setIncapacityReportStaffId] = useState("all");
+  const [hourlyLeaveReportStaffId, setHourlyLeaveReportStaffId] = useState("all");
   const [annualLeaveReportStaffId, setAnnualLeaveReportStaffId] = useState("all");
   const [unpaidLeaveReportStaffId, setUnpaidLeaveReportStaffId] = useState("all");
   const [excludedFixedHolidayStaffIds, setExcludedFixedHolidayStaffIds] = useState<string[]>([]);
@@ -722,6 +762,7 @@ function App() {
   const [deletedAttendance, setDeletedAttendance] = useState<DeletedAttendanceRecord[]>([]);
   const [incapacityReports, setIncapacityReports] = useState<IncapacityReportRecord[]>([]);
   const [holidayWorkRecords, setHolidayWorkRecords] = useState<HolidayWorkRecord[]>([]);
+  const [hourlyLeaveRecords, setHourlyLeaveRecords] = useState<HourlyLeaveRecord[]>([]);
   const [annualLeaveRecords, setAnnualLeaveRecords] = useState<AnnualLeaveRecord[]>([]);
   const [incapacityForm, setIncapacityForm] = useState({
     id: "",
@@ -741,6 +782,16 @@ function App() {
     startTime: HOLIDAY_WORK_DEFAULT_START,
     endTime: HOLIDAY_WORK_DEFAULT_END,
     compensationType: "paid" as HolidayCompensationType,
+    notes: "",
+  });
+  const [hourlyLeaveForm, setHourlyLeaveForm] = useState<HourlyLeaveFormState>({
+    id: "",
+    staffId: "",
+    date: todayIso(),
+    startTime: settings.shiftStart,
+    endTime: addMinutesToTime(settings.shiftStart, 60),
+    reason: "",
+    status: "used",
     notes: "",
   });
   const [annualLeaveForm, setAnnualLeaveForm] = useState<LeaveFormState>({
@@ -1014,6 +1065,27 @@ function App() {
     () => publicHolidays.find((holiday) => holiday.date === holidayWorkForm.date) ?? null,
     [holidayWorkForm.date, publicHolidays],
   );
+  const hourlyLeaveRowsForMonth = useMemo(
+    () =>
+      hourlyLeaveRecords.filter(
+        (record) =>
+          record.date.startsWith(hourlyLeaveReportMonth) &&
+          (hourlyLeaveReportStaffId === "all" || record.staffId === hourlyLeaveReportStaffId),
+      ),
+    [hourlyLeaveRecords, hourlyLeaveReportMonth, hourlyLeaveReportStaffId],
+  );
+  const hourlyLeaveStats = useMemo(
+    () => ({
+      records: hourlyLeaveRowsForMonth.length,
+      minutes: hourlyLeaveRowsForMonth
+        .filter((record) => record.status !== "cancelled")
+        .reduce((sum, record) => sum + record.minutes, 0),
+      used: hourlyLeaveRowsForMonth.filter((record) => record.status === "used").length,
+      planned: hourlyLeaveRowsForMonth.filter((record) => record.status === "planned").length,
+      cancelled: hourlyLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
+    }),
+    [hourlyLeaveRowsForMonth],
+  );
   const annualLeaveYear = annualLeaveForm.year || getCurrentYear();
   const annualLeaveTrackingRecords = useMemo(
     () => annualLeaveRecords.filter((record) => record.leaveType !== "unpaid"),
@@ -1237,17 +1309,20 @@ function App() {
 
   async function refreshHrRecords() {
     try {
-      const [reports, holidayWork, annualLeave] = await Promise.all([
+      const [reports, holidayWork, hourlyLeave, annualLeave] = await Promise.all([
         loadIncapacityReports(),
         loadHolidayWorkRecords(),
+        loadHourlyLeaveRecords(),
         loadAnnualLeaveRecords(),
       ]);
       setIncapacityReports(reports);
       setHolidayWorkRecords(holidayWork);
+      setHourlyLeaveRecords(hourlyLeave);
       setAnnualLeaveRecords(annualLeave);
     } catch {
       setIncapacityReports([]);
       setHolidayWorkRecords([]);
+      setHourlyLeaveRecords([]);
       setAnnualLeaveRecords([]);
     }
   }
@@ -1355,19 +1430,23 @@ function App() {
     if (incapacityReportStaffId !== "all" && !staffById.has(incapacityReportStaffId)) {
       setIncapacityReportStaffId("all");
     }
+    if (hourlyLeaveReportStaffId !== "all" && !staffById.has(hourlyLeaveReportStaffId)) {
+      setHourlyLeaveReportStaffId("all");
+    }
     if (annualLeaveReportStaffId !== "all" && !staffById.has(annualLeaveReportStaffId)) {
       setAnnualLeaveReportStaffId("all");
     }
     if (unpaidLeaveReportStaffId !== "all" && !staffById.has(unpaidLeaveReportStaffId)) {
       setUnpaidLeaveReportStaffId("all");
     }
-  }, [annualLeaveReportStaffId, incapacityReportStaffId, staffById, unpaidLeaveReportStaffId]);
+  }, [annualLeaveReportStaffId, hourlyLeaveReportStaffId, incapacityReportStaffId, staffById, unpaidLeaveReportStaffId]);
 
   useEffect(() => {
     if (!activeStaff.length) return;
     const fallbackId = activeStaff[0].id;
     setIncapacityForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setHolidayWorkForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+    setHourlyLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setAnnualLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setUnpaidLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
   }, [activeStaff, staffById]);
@@ -2142,6 +2221,93 @@ function App() {
     }
   }
 
+  function resetHourlyLeaveForm() {
+    setHourlyLeaveForm({
+      id: "",
+      staffId: activeStaff[0]?.id ?? "",
+      date: todayIso(),
+      startTime: settings.shiftStart,
+      endTime: addMinutesToTime(settings.shiftStart, 60),
+      reason: "",
+      status: "used",
+      notes: "",
+    });
+  }
+
+  async function handleSaveHourlyLeave(event: FormEvent) {
+    event.preventDefault();
+    const staffId = hourlyLeaveForm.staffId || activeStaff[0]?.id || "";
+    if (!staffId) {
+      setMessage("Saatlik izin kaydı için personel seçin.");
+      return;
+    }
+
+    const minutes = calculateHourlyLeaveMinutes(hourlyLeaveForm.startTime, hourlyLeaveForm.endTime);
+    if (!minutes) {
+      setMessage("Saatlik izin kaydı için geçerli başlangıç ve bitiş saati girin.");
+      return;
+    }
+
+    const existing = hourlyLeaveRecords.find((record) => record.id === hourlyLeaveForm.id);
+    const record: HourlyLeaveRecord = {
+      id: hourlyLeaveForm.id || crypto.randomUUID(),
+      staffId,
+      date: hourlyLeaveForm.date,
+      startTime: hourlyLeaveForm.startTime,
+      endTime: hourlyLeaveForm.endTime,
+      minutes,
+      reason: hourlyLeaveForm.reason.trim(),
+      status: hourlyLeaveForm.status,
+      notes: hourlyLeaveForm.notes.trim(),
+      createdAt: existing?.createdAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    setBusy(true);
+    try {
+      await saveHourlyLeaveRecord(record);
+      await saveAuditLog(hourlyLeaveForm.id ? "Saatlik izin kaydı güncellendi" : "Saatlik izin kaydı eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setHourlyLeaveReportMonth(record.date.slice(0, 7));
+      resetHourlyLeaveForm();
+      setMessage("Saatlik izin kaydı kaydedildi.");
+    } catch {
+      setMessage("Saatlik izin kaydı kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function handleEditHourlyLeave(record: HourlyLeaveRecord) {
+    setHourlyLeaveForm({
+      id: record.id,
+      staffId: record.staffId,
+      date: record.date,
+      startTime: record.startTime,
+      endTime: record.endTime,
+      reason: record.reason,
+      status: record.status,
+      notes: record.notes,
+    });
+  }
+
+  async function handleDeleteHourlyLeave(record: HourlyLeaveRecord) {
+    if (!window.confirm("Saatlik izin kaydı silinsin mi?")) return;
+    setBusy(true);
+    try {
+      await deleteHourlyLeaveRecord(record.id);
+      await saveAuditLog("Saatlik izin kaydı silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await refreshHrRecords();
+      await refreshAuditLogs();
+      setMessage("Saatlik izin kaydı silindi.");
+    } catch {
+      setMessage("Saatlik izin kaydı silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function resetAnnualLeaveForm() {
     setAnnualLeaveForm({
       id: "",
@@ -2698,6 +2864,7 @@ function App() {
         deletedAttendance,
         incapacityReports,
         holidayWorkRecords,
+        hourlyLeaveRecords,
         annualLeaveRecords,
         auditLogs,
       };
@@ -2782,6 +2949,42 @@ function App() {
 
   function handlePrintHolidayWorkReport() {
     setPrintMode("holidayWork");
+    window.setTimeout(() => {
+      window.print();
+      setPrintMode("signature");
+    }, 0);
+  }
+
+  function getHourlyLeaveExportRows() {
+    return [
+      ["Personel", "Departman", "Ünvan", "Tarih", "Başlangıç", "Bitiş", "Süre", "Dakika", "Durum", "Sebep", "Not"],
+      ...hourlyLeaveRowsForMonth.map((record) => {
+        const member = staffById.get(record.staffId);
+        return [
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          record.date,
+          record.startTime,
+          record.endTime,
+          formatLeaveDuration(record.minutes),
+          record.minutes,
+          hourlyLeaveStatusLabels[record.status],
+          record.reason,
+          record.notes,
+        ];
+      }),
+    ];
+  }
+
+  function handleExportHourlyLeaveExcel() {
+    downloadExcelFile(`saatlik-izin-raporu-${hourlyLeaveReportMonth}.xls`, [
+      { title: `${formatMonthTr(hourlyLeaveReportMonth)} Saatlik İzin Raporu`, rows: getHourlyLeaveExportRows() },
+    ]);
+  }
+
+  function handlePrintHourlyLeaveReport() {
+    setPrintMode("hourlyLeave");
     window.setTimeout(() => {
       window.print();
       setPrintMode("signature");
@@ -3881,6 +4084,168 @@ function App() {
                   </table>
                 </div>
                 {!holidayWorkRowsForMonth.length && <div className="empty-state">Seçili ayda resmi tatil çalışma kaydı bulunmuyor.</div>}
+              </section>
+            </section>
+          </main>
+        )}
+
+        {activeTab === "hourlyLeave" && (
+          <main className="workspace">
+            <section className="metric-row" aria-label="Saatlik izin özeti">
+              <Metric label="Kayıt" value={hourlyLeaveStats.records} />
+              <Metric label="Toplam Saat" value={Math.round((hourlyLeaveStats.minutes / 60) * 100) / 100} tone="blue" />
+              <Metric label="Kullanılan" value={hourlyLeaveStats.used} tone="green" />
+              <Metric label="Planlanan" value={hourlyLeaveStats.planned} tone="amber" />
+            </section>
+
+            <section className="workspace two-column">
+              <section className="data-panel form-panel">
+                <form className="staff-form" onSubmit={(event) => void handleSaveHourlyLeave(event)}>
+                  <div className="panel-heading compact-heading">
+                    <div>
+                      <h2>Saatlik İzin</h2>
+                      <span>{hourlyLeaveForm.id ? "Kayıt düzenleniyor" : "Yeni kayıt"}</span>
+                    </div>
+                  </div>
+                  <label>
+                    Personel
+                    <select value={hourlyLeaveForm.staffId} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {activeStaff.map((member) => (
+                        <option key={member.id} value={member.id}>{member.name}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label>
+                    Tarih
+                    <input
+                      type="date"
+                      value={hourlyLeaveForm.date}
+                      onChange={(event) => {
+                        setHourlyLeaveReportMonth(event.target.value.slice(0, 7));
+                        setHourlyLeaveForm((previous) => ({ ...previous, date: event.target.value }));
+                      }}
+                    />
+                  </label>
+                  <label>
+                    Başlangıç Saati
+                    <input type="time" value={hourlyLeaveForm.startTime} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, startTime: event.target.value }))} />
+                  </label>
+                  <label>
+                    Bitiş Saati
+                    <input type="time" value={hourlyLeaveForm.endTime} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, endTime: event.target.value }))} />
+                  </label>
+                  <label>
+                    Süre
+                    <input value={formatLeaveDuration(calculateHourlyLeaveMinutes(hourlyLeaveForm.startTime, hourlyLeaveForm.endTime))} readOnly />
+                  </label>
+                  <label>
+                    Durum
+                    <select value={hourlyLeaveForm.status} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, status: event.target.value as HourlyLeaveStatus }))}>
+                      <option value="used">Kullanıldı</option>
+                      <option value="planned">Planlandı</option>
+                      <option value="cancelled">İptal</option>
+                    </select>
+                  </label>
+                  <label>
+                    İzin Sebebi
+                    <input value={hourlyLeaveForm.reason} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, reason: event.target.value }))} placeholder="Örn. hastane, banka, ailevi neden" />
+                  </label>
+                  <label>
+                    Not
+                    <textarea value={hourlyLeaveForm.notes} onChange={(event) => setHourlyLeaveForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
+                  </label>
+                  <div className="button-row">
+                    <button className="primary-action" type="submit" disabled={busy}>
+                      <Save size={18} aria-hidden="true" />
+                      Kaydet
+                    </button>
+                    {hourlyLeaveForm.id && (
+                      <button className="secondary-action" type="button" onClick={resetHourlyLeaveForm}>
+                        <X size={18} aria-hidden="true" />
+                        Vazgeç
+                      </button>
+                    )}
+                  </div>
+                </form>
+              </section>
+
+              <section className="data-panel">
+                <div className="panel-heading">
+                  <div>
+                    <h2>Saatlik İzin Kayıtları</h2>
+                    <span>{formatMonthTr(hourlyLeaveReportMonth)} personel bazlı saatlik izin geçmişi</span>
+                  </div>
+                  <div className="button-row">
+                    <label className="compact-month-filter">
+                      Ay
+                      <input type="month" value={hourlyLeaveReportMonth} onChange={(event) => setHourlyLeaveReportMonth(event.target.value || todayIso().slice(0, 7))} />
+                    </label>
+                    <label className="compact-month-filter">
+                      Personel
+                      <select value={hourlyLeaveReportStaffId} onChange={(event) => setHourlyLeaveReportStaffId(event.target.value)}>
+                        <option value="all">Tüm personel</option>
+                        {activeStaff.map((member) => (
+                          <option key={member.id} value={member.id}>{member.name}</option>
+                        ))}
+                      </select>
+                    </label>
+                    <button className="secondary-action" onClick={handleExportHourlyLeaveExcel} disabled={!hourlyLeaveRowsForMonth.length}>
+                      <FileSpreadsheet size={18} aria-hidden="true" />
+                      Excel
+                    </button>
+                    <button className="secondary-action" onClick={handlePrintHourlyLeaveReport} disabled={!hourlyLeaveRowsForMonth.length}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF
+                    </button>
+                    <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                      <RefreshCw size={18} aria-hidden="true" />
+                      Yenile
+                    </button>
+                  </div>
+                </div>
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Personel</th>
+                        <th>Tarih</th>
+                        <th>Saat</th>
+                        <th>Süre</th>
+                        <th>Durum</th>
+                        <th>Sebep</th>
+                        <th>Not</th>
+                        <th aria-label="İşlem" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {hourlyLeaveRowsForMonth.map((record) => (
+                        <tr key={record.id}>
+                          <td>
+                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                          </td>
+                          <td>{record.date}</td>
+                          <td>{record.startTime} - {record.endTime}</td>
+                          <td>{formatLeaveDuration(record.minutes)}</td>
+                          <td><span className="status-toggle">{hourlyLeaveStatusLabels[record.status]}</span></td>
+                          <td>{record.reason || "-"}</td>
+                          <td>{record.notes}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title="Düzenle" aria-label="Saatlik izin kaydını düzenle">
+                                <Edit3 size={17} />
+                              </button>
+                              <button className="icon-button danger" onClick={() => void handleDeleteHourlyLeave(record)} title="Sil" aria-label="Saatlik izin kaydını sil">
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {!hourlyLeaveRowsForMonth.length && <div className="empty-state">Seçili ayda saatlik izin kaydı bulunmuyor.</div>}
               </section>
             </section>
           </main>
@@ -5031,6 +5396,13 @@ function App() {
             reportMonth={unpaidLeaveReportMonth}
             title="Ücretsiz İzin Raporu"
           />
+        ) : printMode === "hourlyLeave" ? (
+          <HourlyLeavePrintReport
+            records={hourlyLeaveRowsForMonth}
+            staffById={staffById}
+            stats={hourlyLeaveStats}
+            reportMonth={hourlyLeaveReportMonth}
+          />
         ) : (
           printPages.map((pageStaff, index) => (
             <SheetPage
@@ -5610,6 +5982,90 @@ function LeavePrintReport({
                 <td>{record.startDate} - {record.endDate}</td>
                 <td>{record.usedDays}</td>
                 <td>{getLeaveDisplayStatus(record)}</td>
+                <td>{record.notes}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </article>
+  );
+}
+
+function HourlyLeavePrintReport({
+  records,
+  staffById,
+  stats,
+  reportMonth,
+}: {
+  records: HourlyLeaveRecord[];
+  staffById: Map<string, StaffMember>;
+  stats: { records: number; minutes: number; used: number; planned: number; cancelled: number };
+  reportMonth: string;
+}) {
+  const sortedRecords = [...records].sort(
+    (a, b) =>
+      a.date.localeCompare(b.date) ||
+      a.startTime.localeCompare(b.startTime) ||
+      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"),
+  );
+
+  return (
+    <article className="holiday-report-page">
+      <header className="holiday-report-header">
+        <div>
+          <strong>{formatMonthTr(reportMonth)} Saatlik İzin Raporu</strong>
+          <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
+        </div>
+        <CalendarCheck size={26} aria-hidden="true" />
+      </header>
+      <section className="holiday-report-summary">
+        <div>
+          <span>Kayıt</span>
+          <strong>{stats.records}</strong>
+        </div>
+        <div>
+          <span>Toplam Süre</span>
+          <strong>{formatLeaveDuration(stats.minutes)}</strong>
+        </div>
+        <div>
+          <span>Kullanılan</span>
+          <strong>{stats.used}</strong>
+        </div>
+        <div>
+          <span>Planlanan</span>
+          <strong>{stats.planned}</strong>
+        </div>
+      </section>
+      <table className="holiday-report-table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Personel</th>
+            <th>Departman</th>
+            <th>Ünvan</th>
+            <th>Tarih</th>
+            <th>Saat</th>
+            <th>Süre</th>
+            <th>Durum</th>
+            <th>Sebep</th>
+            <th>Not</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
+            return (
+              <tr key={record.id}>
+                <td>{index + 1}</td>
+                <td>{member?.name ?? ""}</td>
+                <td>{member?.department ?? ""}</td>
+                <td>{member?.title ?? ""}</td>
+                <td>{record.date}</td>
+                <td>{record.startTime} - {record.endTime}</td>
+                <td>{formatLeaveDuration(record.minutes)}</td>
+                <td>{hourlyLeaveStatusLabels[record.status]}</td>
+                <td>{record.reason}</td>
                 <td>{record.notes}</td>
               </tr>
             );

@@ -28,6 +28,7 @@ import type {
   AuditLogRecord,
   DayLockRecord,
   DeletedAttendanceRecord,
+  HourlyLeaveRecord,
   HolidayWorkRecord,
   IncapacityReportRecord,
   PrintArchiveRecord,
@@ -43,6 +44,7 @@ const DELETED_ATTENDANCE_KEY = "personel-imza.deletedAttendance.v1";
 const INCAPACITY_REPORT_KEY = "personel-imza.incapacityReports.v1";
 const HOLIDAY_WORK_KEY = "personel-imza.holidayWork.v1";
 const ANNUAL_LEAVE_KEY = "personel-imza.annualLeave.v1";
+const HOURLY_LEAVE_KEY = "personel-imza.hourlyLeave.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -575,4 +577,45 @@ export async function deleteAnnualLeaveRecord(id: string) {
 
   const records = readLocal<AnnualLeaveRecord[]>(ANNUAL_LEAVE_KEY, []);
   writeLocal(ANNUAL_LEAVE_KEY, records.filter((record) => record.id !== id));
+}
+
+export async function loadHourlyLeaveRecords(): Promise<HourlyLeaveRecord[]> {
+  if (db) {
+    try {
+      await waitForSignedIn();
+      const snapshot = await getDocs(query(collection(db, "hourlyLeave"), orderBy("date", "desc")));
+      return snapshot.docs.map((item) => item.data() as HourlyLeaveRecord);
+    } catch (error) {
+      console.warn("Firebase hourly leave read failed.", error);
+      return [];
+    }
+  }
+
+  return readLocal<HourlyLeaveRecord[]>(HOURLY_LEAVE_KEY, []).sort((a, b) => b.date.localeCompare(a.date));
+}
+
+export async function saveHourlyLeaveRecord(record: HourlyLeaveRecord) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "hourlyLeave", record.id), {
+      ...record,
+      updatedAt: new Date().toISOString(),
+      serverUpdatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
+  const records = readLocal<HourlyLeaveRecord[]>(HOURLY_LEAVE_KEY, []);
+  writeLocal(HOURLY_LEAVE_KEY, [record, ...records.filter((item) => item.id !== record.id)]);
+}
+
+export async function deleteHourlyLeaveRecord(id: string) {
+  if (db) {
+    await waitForSignedIn();
+    await deleteDoc(doc(db, "hourlyLeave", id));
+    return;
+  }
+
+  const records = readLocal<HourlyLeaveRecord[]>(HOURLY_LEAVE_KEY, []);
+  writeLocal(HOURLY_LEAVE_KEY, records.filter((record) => record.id !== id));
 }

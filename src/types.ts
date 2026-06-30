@@ -3,6 +3,7 @@ export type IncapacityStatus = "active" | "completed" | "cancelled";
 export type HolidayCompensationType = "paid" | "leave" | "none";
 export type AnnualLeaveType = "annual" | "excuse" | "unpaid" | "other";
 export type LeaveStatus = "planned" | "used" | "completed" | "cancelled";
+export type HourlyLeaveStatus = "planned" | "used" | "cancelled";
 
 export type StaffMember = {
   id: string;
@@ -104,6 +105,20 @@ export type AnnualLeaveRecord = {
   usedDays: number;
   entitlementDays: number;
   status: LeaveStatus;
+  notes: string;
+  createdAt: string;
+  updatedAt?: string;
+};
+
+export type HourlyLeaveRecord = {
+  id: string;
+  staffId: string;
+  date: string;
+  startTime: string;
+  endTime: string;
+  minutes: number;
+  reason: string;
+  status: HourlyLeaveStatus;
   notes: string;
   createdAt: string;
   updatedAt?: string;

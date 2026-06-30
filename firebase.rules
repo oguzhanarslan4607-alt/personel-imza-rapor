@@ -44,6 +44,10 @@ service cloud.firestore {
       allow read, write: if isAdmin();
     }
 
+    match /hourlyLeave/{leaveId} {
+      allow read, write: if isAdmin();
+    }
+
     match /annualLeave/{leaveId} {
       allow read, write: if isAdmin();
     }
