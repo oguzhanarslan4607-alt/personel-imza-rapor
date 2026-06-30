@@ -169,6 +169,17 @@ type HourlyLeaveFormState = {
   status: HourlyLeaveStatus;
   notes: string;
 };
+type HourlyLeaveGroup = {
+  id: string;
+  staffId: string;
+  records: HourlyLeaveRecord[];
+  dates: string[];
+  timeRanges: string[];
+  minutes: number;
+  statusSummary: string;
+  reasons: string[];
+  notes: string[];
+};
 type StaffInsight = {
   staff: StaffMember;
   counts: StatusCounts;
@@ -457,6 +468,62 @@ function getHourlyLeaveDays(minutes: number) {
 
 function formatLeaveDayValue(minutes: number) {
   return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(getHourlyLeaveDays(minutes));
+}
+
+function groupHourlyLeaveRecords(records: HourlyLeaveRecord[], staffById: Map<string, StaffMember>): HourlyLeaveGroup[] {
+  const grouped = new Map<string, HourlyLeaveGroup>();
+
+  records.forEach((record) => {
+    const netMinutes = record.status === "cancelled" ? 0 : getHourlyLeaveNetMinutes(record);
+    const current =
+      grouped.get(record.staffId) ??
+      {
+        id: record.staffId,
+        staffId: record.staffId,
+        records: [],
+        dates: [],
+        timeRanges: [],
+        minutes: 0,
+        statusSummary: "",
+        reasons: [],
+        notes: [],
+      };
+
+    current.records.push(record);
+    current.dates.push(record.date);
+    current.timeRanges.push(`${record.date} ${record.startTime}-${record.endTime}`);
+    current.minutes += netMinutes;
+    if (record.reason.trim()) current.reasons.push(record.reason.trim());
+    if (record.notes.trim()) current.notes.push(record.notes.trim());
+    grouped.set(record.staffId, current);
+  });
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const statusCounts = group.records.reduce<Record<HourlyLeaveStatus, number>>(
+        (counts, record) => ({ ...counts, [record.status]: counts[record.status] + 1 }),
+        { planned: 0, used: 0, cancelled: 0 },
+      );
+      const summaryParts = [
+        statusCounts.used ? `${statusCounts.used} kullanılan` : "",
+        statusCounts.planned ? `${statusCounts.planned} planlanan` : "",
+        statusCounts.cancelled ? `${statusCounts.cancelled} iptal` : "",
+      ].filter(Boolean);
+
+      return {
+        ...group,
+        dates: uniqueValues(group.dates).sort((a, b) => a.localeCompare(b)),
+        timeRanges: group.timeRanges.sort((a, b) => a.localeCompare(b)),
+        statusSummary: summaryParts.join(", ") || "-",
+        reasons: uniqueValues(group.reasons),
+        notes: uniqueValues(group.notes),
+      };
+    })
+    .sort(
+      (a, b) =>
+        (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }) ||
+        a.staffId.localeCompare(b.staffId),
+    );
 }
 
 function uniqueValues(values: string[]) {
@@ -1100,6 +1167,10 @@ function App() {
       cancelled: hourlyLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [hourlyLeaveRowsForMonth],
+  );
+  const hourlyLeaveGroups = useMemo(
+    () => groupHourlyLeaveRecords(hourlyLeaveRowsForMonth, staffById),
+    [hourlyLeaveRowsForMonth, staffById],
   );
   const annualLeaveYear = annualLeaveForm.year || getCurrentYear();
   const annualLeaveTrackingRecords = useMemo(
@@ -2972,23 +3043,22 @@ function App() {
 
   function getHourlyLeaveExportRows() {
     return [
-      ["Personel", "Departman", "Ünvan", "Tarih", "Başlangıç", "Bitiş", "Net Süre", "Net Dakika", "Gün", "Durum", "Sebep", "Not"],
-      ...hourlyLeaveRowsForMonth.map((record) => {
-        const member = staffById.get(record.staffId);
-        const netMinutes = getHourlyLeaveNetMinutes(record);
+      ["Personel", "Departman", "Ünvan", "Kayıt", "Tarihler", "Saat Detayları", "Toplam Süre", "Toplam Dakika", "Gün", "Durum Özeti", "Sebepler", "Notlar"],
+      ...hourlyLeaveGroups.map((group) => {
+        const member = staffById.get(group.staffId);
         return [
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
-          record.date,
-          record.startTime,
-          record.endTime,
-          formatLeaveDuration(netMinutes),
-          netMinutes,
-          getHourlyLeaveDays(netMinutes),
-          hourlyLeaveStatusLabels[record.status],
-          record.reason,
-          record.notes,
+          group.records.length,
+          group.dates.join(", "),
+          group.timeRanges.join(", "),
+          formatLeaveDuration(group.minutes),
+          group.minutes,
+          getHourlyLeaveDays(group.minutes),
+          group.statusSummary,
+          group.reasons.join(" / "),
+          group.notes.join(" / "),
         ];
       }),
     ];
@@ -4226,40 +4296,44 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
-                        <th>Tarih</th>
-                        <th>Saat</th>
-                        <th>Süre</th>
+                        <th>Kayıt</th>
+                        <th>Tarihler</th>
+                        <th>Saat Detayları</th>
+                        <th>Toplam Süre</th>
                         <th>Gün</th>
-                        <th>Durum</th>
-                        <th>Sebep</th>
-                        <th>Not</th>
+                        <th>Durum Özeti</th>
+                        <th>Sebep / Not</th>
                         <th aria-label="İşlem" />
                       </tr>
                     </thead>
                     <tbody>
-                      {hourlyLeaveRowsForMonth.map((record) => {
-                        const netMinutes = getHourlyLeaveNetMinutes(record);
+                      {hourlyLeaveGroups.map((group) => {
                         return (
-                          <tr key={record.id}>
+                          <tr key={group.id}>
                             <td>
-                              <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                              <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                              <strong>{staffById.get(group.staffId)?.name ?? ""}</strong>
+                              <span>{staffById.get(group.staffId)?.department ?? ""}</span>
                             </td>
-                            <td>{record.date}</td>
-                            <td>{record.startTime} - {record.endTime}</td>
-                            <td>{formatLeaveDuration(netMinutes)}</td>
-                            <td>{formatLeaveDayValue(netMinutes)}</td>
-                            <td><span className="status-toggle">{hourlyLeaveStatusLabels[record.status]}</span></td>
-                            <td>{record.reason || "-"}</td>
-                            <td>{record.notes}</td>
+                            <td>{group.records.length}</td>
+                            <td>{group.dates.join(", ")}</td>
+                            <td>{group.timeRanges.join(", ")}</td>
+                            <td>{formatLeaveDuration(group.minutes)}</td>
+                            <td>{formatLeaveDayValue(group.minutes)}</td>
+                            <td><span className="status-toggle">{group.statusSummary}</span></td>
+                            <td>{[group.reasons.join(" / "), group.notes.join(" / ")].filter(Boolean).join(" - ") || "-"}</td>
                             <td>
                               <div className="row-actions">
-                                <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title="Düzenle" aria-label="Saatlik izin kaydını düzenle">
-                                  <Edit3 size={17} />
-                                </button>
-                                <button className="icon-button danger" onClick={() => void handleDeleteHourlyLeave(record)} title="Sil" aria-label="Saatlik izin kaydını sil">
-                                  <Trash2 size={17} />
-                                </button>
+                                {group.records.map((record) => (
+                                  <span className="record-action-pair" key={record.id}>
+                                    <small>{record.date} {record.startTime}</small>
+                                    <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title={`${record.date} düzenle`} aria-label={`${record.date} saatlik izin kaydını düzenle`}>
+                                      <Edit3 size={17} />
+                                    </button>
+                                    <button className="icon-button danger" onClick={() => void handleDeleteHourlyLeave(record)} title={`${record.date} sil`} aria-label={`${record.date} saatlik izin kaydını sil`}>
+                                      <Trash2 size={17} />
+                                    </button>
+                                  </span>
+                                ))}
                               </div>
                             </td>
                           </tr>
@@ -5421,7 +5495,7 @@ function App() {
           />
         ) : printMode === "hourlyLeave" ? (
           <HourlyLeavePrintReport
-            records={hourlyLeaveRowsForMonth}
+            groups={hourlyLeaveGroups}
             staffById={staffById}
             stats={hourlyLeaveStats}
             reportMonth={hourlyLeaveReportMonth}
@@ -6016,21 +6090,20 @@ function LeavePrintReport({
 }
 
 function HourlyLeavePrintReport({
-  records,
+  groups,
   staffById,
   stats,
   reportMonth,
 }: {
-  records: HourlyLeaveRecord[];
+  groups: HourlyLeaveGroup[];
   staffById: Map<string, StaffMember>;
   stats: { records: number; minutes: number; used: number; planned: number; cancelled: number };
   reportMonth: string;
 }) {
-  const sortedRecords = [...records].sort(
+  const sortedGroups = [...groups].sort(
     (a, b) =>
-      a.date.localeCompare(b.date) ||
-      a.startTime.localeCompare(b.startTime) ||
-      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"),
+      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }) ||
+      a.staffId.localeCompare(b.staffId),
   );
 
   return (
@@ -6071,32 +6144,31 @@ function HourlyLeavePrintReport({
             <th>Personel</th>
             <th>Departman</th>
             <th>Ünvan</th>
-            <th>Tarih</th>
-            <th>Saat</th>
-            <th>Süre</th>
+            <th>Kayıt</th>
+            <th>Tarihler</th>
+            <th>Saat Detayları</th>
+            <th>Toplam Süre</th>
             <th>Gün</th>
-            <th>Durum</th>
-            <th>Sebep</th>
-            <th>Not</th>
+            <th>Durum Özeti</th>
+            <th>Sebep / Not</th>
           </tr>
         </thead>
         <tbody>
-          {sortedRecords.map((record, index) => {
-            const member = staffById.get(record.staffId);
-            const netMinutes = getHourlyLeaveNetMinutes(record);
+          {sortedGroups.map((group, index) => {
+            const member = staffById.get(group.staffId);
             return (
-              <tr key={record.id}>
+              <tr key={group.id}>
                 <td>{index + 1}</td>
                 <td>{member?.name ?? ""}</td>
                 <td>{member?.department ?? ""}</td>
                 <td>{member?.title ?? ""}</td>
-                <td>{record.date}</td>
-                <td>{record.startTime} - {record.endTime}</td>
-                <td>{formatLeaveDuration(netMinutes)}</td>
-                <td>{formatLeaveDayValue(netMinutes)}</td>
-                <td>{hourlyLeaveStatusLabels[record.status]}</td>
-                <td>{record.reason}</td>
-                <td>{record.notes}</td>
+                <td>{group.records.length}</td>
+                <td>{group.dates.join(", ")}</td>
+                <td>{group.timeRanges.join(", ")}</td>
+                <td>{formatLeaveDuration(group.minutes)}</td>
+                <td>{formatLeaveDayValue(group.minutes)}</td>
+                <td>{group.statusSummary}</td>
+                <td>{[group.reasons.join(" / "), group.notes.join(" / ")].filter(Boolean).join(" - ")}</td>
               </tr>
             );
           })}
