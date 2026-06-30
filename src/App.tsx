@@ -235,6 +235,7 @@ const EXTRA_SIGNATURE_ROWS = 3;
 const BRAND_LOGO_SRC = "/brand-logo.png";
 const HOLIDAY_WORK_DEFAULT_START = "09:00";
 const HOLIDAY_WORK_DEFAULT_END = "18:00";
+const HOURLY_LEAVE_WORKDAY_MINUTES = 8 * 60;
 const islamicDateFormatter = new Intl.DateTimeFormat("en-u-ca-islamic-umalqura", {
   timeZone: "UTC",
   year: "numeric",
@@ -433,7 +434,13 @@ function calculateHourlyLeaveMinutes(startTime: string, endTime: string) {
   const start = timeToMinutes(startTime);
   let end = timeToMinutes(endTime);
   if (end <= start) end += 24 * 60;
-  return Math.max(0, end - start);
+  const grossMinutes = Math.max(0, end - start);
+  const breakMinutes = grossMinutes >= 7.5 * 60 ? 60 : 0;
+  return Math.max(0, grossMinutes - breakMinutes);
+}
+
+function getHourlyLeaveNetMinutes(record: HourlyLeaveRecord) {
+  return calculateHourlyLeaveMinutes(record.startTime, record.endTime) || record.minutes || 0;
 }
 
 function formatLeaveDuration(minutes: number) {
@@ -442,6 +449,14 @@ function formatLeaveDuration(minutes: number) {
   if (hours && remainingMinutes) return `${hours} sa ${remainingMinutes} dk`;
   if (hours) return `${hours} sa`;
   return `${remainingMinutes} dk`;
+}
+
+function getHourlyLeaveDays(minutes: number) {
+  return Math.round((minutes / HOURLY_LEAVE_WORKDAY_MINUTES) * 100) / 100;
+}
+
+function formatLeaveDayValue(minutes: number) {
+  return new Intl.NumberFormat("tr-TR", { maximumFractionDigits: 2 }).format(getHourlyLeaveDays(minutes));
 }
 
 function uniqueValues(values: string[]) {
@@ -1079,7 +1094,7 @@ function App() {
       records: hourlyLeaveRowsForMonth.length,
       minutes: hourlyLeaveRowsForMonth
         .filter((record) => record.status !== "cancelled")
-        .reduce((sum, record) => sum + record.minutes, 0),
+        .reduce((sum, record) => sum + getHourlyLeaveNetMinutes(record), 0),
       used: hourlyLeaveRowsForMonth.filter((record) => record.status === "used").length,
       planned: hourlyLeaveRowsForMonth.filter((record) => record.status === "planned").length,
       cancelled: hourlyLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
@@ -2957,9 +2972,10 @@ function App() {
 
   function getHourlyLeaveExportRows() {
     return [
-      ["Personel", "Departman", "Ünvan", "Tarih", "Başlangıç", "Bitiş", "Süre", "Dakika", "Durum", "Sebep", "Not"],
+      ["Personel", "Departman", "Ünvan", "Tarih", "Başlangıç", "Bitiş", "Net Süre", "Net Dakika", "Gün", "Durum", "Sebep", "Not"],
       ...hourlyLeaveRowsForMonth.map((record) => {
         const member = staffById.get(record.staffId);
+        const netMinutes = getHourlyLeaveNetMinutes(record);
         return [
           member?.name ?? "",
           member?.department ?? "",
@@ -2967,8 +2983,9 @@ function App() {
           record.date,
           record.startTime,
           record.endTime,
-          formatLeaveDuration(record.minutes),
-          record.minutes,
+          formatLeaveDuration(netMinutes),
+          netMinutes,
+          getHourlyLeaveDays(netMinutes),
           hourlyLeaveStatusLabels[record.status],
           record.reason,
           record.notes,
@@ -4094,8 +4111,9 @@ function App() {
             <section className="metric-row" aria-label="Saatlik izin özeti">
               <Metric label="Kayıt" value={hourlyLeaveStats.records} />
               <Metric label="Toplam Saat" value={Math.round((hourlyLeaveStats.minutes / 60) * 100) / 100} tone="blue" />
+              <Metric label="Toplam Gün" value={getHourlyLeaveDays(hourlyLeaveStats.minutes)} tone="amber" />
               <Metric label="Kullanılan" value={hourlyLeaveStats.used} tone="green" />
-              <Metric label="Planlanan" value={hourlyLeaveStats.planned} tone="amber" />
+              <Metric label="Planlanan" value={hourlyLeaveStats.planned} />
             </section>
 
             <section className="workspace two-column">
@@ -4211,6 +4229,7 @@ function App() {
                         <th>Tarih</th>
                         <th>Saat</th>
                         <th>Süre</th>
+                        <th>Gün</th>
                         <th>Durum</th>
                         <th>Sebep</th>
                         <th>Not</th>
@@ -4218,30 +4237,34 @@ function App() {
                       </tr>
                     </thead>
                     <tbody>
-                      {hourlyLeaveRowsForMonth.map((record) => (
-                        <tr key={record.id}>
-                          <td>
-                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
-                          </td>
-                          <td>{record.date}</td>
-                          <td>{record.startTime} - {record.endTime}</td>
-                          <td>{formatLeaveDuration(record.minutes)}</td>
-                          <td><span className="status-toggle">{hourlyLeaveStatusLabels[record.status]}</span></td>
-                          <td>{record.reason || "-"}</td>
-                          <td>{record.notes}</td>
-                          <td>
-                            <div className="row-actions">
-                              <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title="Düzenle" aria-label="Saatlik izin kaydını düzenle">
-                                <Edit3 size={17} />
-                              </button>
-                              <button className="icon-button danger" onClick={() => void handleDeleteHourlyLeave(record)} title="Sil" aria-label="Saatlik izin kaydını sil">
-                                <Trash2 size={17} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      ))}
+                      {hourlyLeaveRowsForMonth.map((record) => {
+                        const netMinutes = getHourlyLeaveNetMinutes(record);
+                        return (
+                          <tr key={record.id}>
+                            <td>
+                              <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                              <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                            </td>
+                            <td>{record.date}</td>
+                            <td>{record.startTime} - {record.endTime}</td>
+                            <td>{formatLeaveDuration(netMinutes)}</td>
+                            <td>{formatLeaveDayValue(netMinutes)}</td>
+                            <td><span className="status-toggle">{hourlyLeaveStatusLabels[record.status]}</span></td>
+                            <td>{record.reason || "-"}</td>
+                            <td>{record.notes}</td>
+                            <td>
+                              <div className="row-actions">
+                                <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title="Düzenle" aria-label="Saatlik izin kaydını düzenle">
+                                  <Edit3 size={17} />
+                                </button>
+                                <button className="icon-button danger" onClick={() => void handleDeleteHourlyLeave(record)} title="Sil" aria-label="Saatlik izin kaydını sil">
+                                  <Trash2 size={17} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -6029,6 +6052,10 @@ function HourlyLeavePrintReport({
           <strong>{formatLeaveDuration(stats.minutes)}</strong>
         </div>
         <div>
+          <span>Toplam Gün</span>
+          <strong>{formatLeaveDayValue(stats.minutes)}</strong>
+        </div>
+        <div>
           <span>Kullanılan</span>
           <strong>{stats.used}</strong>
         </div>
@@ -6047,6 +6074,7 @@ function HourlyLeavePrintReport({
             <th>Tarih</th>
             <th>Saat</th>
             <th>Süre</th>
+            <th>Gün</th>
             <th>Durum</th>
             <th>Sebep</th>
             <th>Not</th>
@@ -6055,6 +6083,7 @@ function HourlyLeavePrintReport({
         <tbody>
           {sortedRecords.map((record, index) => {
             const member = staffById.get(record.staffId);
+            const netMinutes = getHourlyLeaveNetMinutes(record);
             return (
               <tr key={record.id}>
                 <td>{index + 1}</td>
@@ -6063,7 +6092,8 @@ function HourlyLeavePrintReport({
                 <td>{member?.title ?? ""}</td>
                 <td>{record.date}</td>
                 <td>{record.startTime} - {record.endTime}</td>
-                <td>{formatLeaveDuration(record.minutes)}</td>
+                <td>{formatLeaveDuration(netMinutes)}</td>
+                <td>{formatLeaveDayValue(netMinutes)}</td>
                 <td>{hourlyLeaveStatusLabels[record.status]}</td>
                 <td>{record.reason}</td>
                 <td>{record.notes}</td>
