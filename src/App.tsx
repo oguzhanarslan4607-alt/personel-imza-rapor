@@ -437,6 +437,31 @@ function countLeaveDays(startDate: string, endDate: string) {
   return count;
 }
 
+function calculateAnnualEntitlementFromStartDate(startDate: string | undefined, year: number) {
+  if (!startDate) return 14;
+  const start = parseIsoDate(startDate);
+  if (!start) return 14;
+
+  const serviceYears = Math.max(0, year - start.getFullYear());
+  if (serviceYears >= 15) return 26;
+  if (serviceYears >= 5) return 20;
+  return 14;
+}
+
+function getAnnualEntitlementForStaff(
+  staffId: string,
+  year: number,
+  records: AnnualLeaveRecord[],
+  staffById: Map<string, StaffMember>,
+) {
+  const existingEntitlements = records
+    .filter((record) => record.staffId === staffId && record.year === year && record.leaveType === "annual" && record.entitlementDays > 0)
+    .map((record) => record.entitlementDays);
+
+  if (existingEntitlements.length) return Math.max(...existingEntitlements);
+  return calculateAnnualEntitlementFromStartDate(staffById.get(staffId)?.startDate, year);
+}
+
 function calculateWorkHours(startTime: string, endTime: string) {
   if (!startTime || !endTime) return 0;
   const start = timeToMinutes(startTime);
@@ -1263,13 +1288,13 @@ function App() {
         summary.get(record.staffId) ??
         {
           staff: member,
-          entitlement: record.entitlementDays || annualLeaveForm.entitlementDays,
+          entitlement: getAnnualEntitlementForStaff(record.staffId, annualLeaveYear, annualLeaveRecords, staffById),
           used: 0,
           planned: 0,
           remaining: 0,
         };
 
-      current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0, annualLeaveForm.entitlementDays || 0);
+      current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0);
       if (record.leaveType === "annual" && record.status !== "cancelled") {
         if (isAnnualLeaveUsed(record)) current.used += record.usedDays;
         if (isAnnualLeavePlanned(record)) current.planned += record.usedDays;
@@ -1281,7 +1306,7 @@ function App() {
     return Array.from(summary.values()).sort(
       (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
     );
-  }, [annualLeaveForm.entitlementDays, annualLeaveRowsForYear, staffById, staffRankById]);
+  }, [annualLeaveRecords, annualLeaveRowsForYear, annualLeaveYear, staffById, staffRankById]);
   const annualLeaveStats = useMemo(
     () => ({
       records: annualLeaveRowsForYear.length,
@@ -1608,9 +1633,17 @@ function App() {
     setIncapacityForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setHolidayWorkForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
     setHourlyLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
-    setAnnualLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
+    setAnnualLeaveForm((previous) =>
+      previous.staffId && staffById.has(previous.staffId)
+        ? previous
+        : {
+            ...previous,
+            staffId: fallbackId,
+            entitlementDays: getAnnualEntitlementForStaff(fallbackId, Number(previous.year) || getCurrentYear(), annualLeaveRecords, staffById),
+          },
+    );
     setUnpaidLeaveForm((previous) => (previous.staffId && staffById.has(previous.staffId) ? previous : { ...previous, staffId: fallbackId }));
-  }, [activeStaff, staffById]);
+  }, [activeStaff, annualLeaveRecords, staffById]);
 
   function updateSettings(patch: Partial<AppSettings>) {
     const next = { ...settings, ...patch };
@@ -2470,17 +2503,49 @@ function App() {
   }
 
   function resetAnnualLeaveForm() {
+    const staffId = activeStaff[0]?.id ?? "";
+    const year = getCurrentYear();
     setAnnualLeaveForm({
       id: "",
-      staffId: activeStaff[0]?.id ?? "",
-      year: getCurrentYear(),
+      staffId,
+      year,
       leaveType: "annual",
       startDate: todayIso(),
       endDate: todayIso(),
-      entitlementDays: 14,
+      entitlementDays: staffId ? getAnnualEntitlementForStaff(staffId, year, annualLeaveRecords, staffById) : 14,
       status: "planned",
       notes: "",
     });
+  }
+
+  function getAnnualLeaveFormEntitlement(staffId: string, year: number) {
+    return staffId ? getAnnualEntitlementForStaff(staffId, year, annualLeaveRecords, staffById) : 14;
+  }
+
+  function handleAnnualLeaveStaffChange(staffId: string) {
+    setAnnualLeaveForm((previous) => ({
+      ...previous,
+      staffId,
+      entitlementDays: getAnnualLeaveFormEntitlement(staffId, Number(previous.year) || getCurrentYear()),
+    }));
+  }
+
+  function handleAnnualLeaveYearChange(year: number) {
+    setAnnualLeaveForm((previous) => ({
+      ...previous,
+      year,
+      entitlementDays: getAnnualLeaveFormEntitlement(previous.staffId, year || getCurrentYear()),
+    }));
+  }
+
+  function handleAnnualLeaveStartDateChange(startDate: string) {
+    const year = Number(startDate.slice(0, 4)) || annualLeaveForm.year || getCurrentYear();
+    setAnnualLeaveForm((previous) => ({
+      ...previous,
+      startDate,
+      year,
+      entitlementDays: getAnnualLeaveFormEntitlement(previous.staffId, year),
+    }));
   }
 
   function resetUnpaidLeaveForm() {
@@ -4464,7 +4529,7 @@ function App() {
                   </div>
                   <label>
                     Personel
-                    <select value={annualLeaveForm.staffId} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                    <select value={annualLeaveForm.staffId} onChange={(event) => handleAnnualLeaveStaffChange(event.target.value)}>
                       {activeStaff.map((member) => (
                         <option key={member.id} value={member.id}>{member.name}</option>
                       ))}
@@ -4472,7 +4537,7 @@ function App() {
                   </label>
                   <label>
                     Yıl
-                    <input type="number" value={annualLeaveForm.year} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, year: Number(event.target.value) }))} />
+                    <input type="number" value={annualLeaveForm.year} onChange={(event) => handleAnnualLeaveYearChange(Number(event.target.value))} />
                   </label>
                   <label>
                     İzin Türü
@@ -4484,7 +4549,7 @@ function App() {
                   </label>
                   <label>
                     Başlangıç
-                    <input type="date" value={annualLeaveForm.startDate} onChange={(event) => setAnnualLeaveForm((previous) => ({ ...previous, startDate: event.target.value, year: Number(event.target.value.slice(0, 4)) || previous.year }))} />
+                    <input type="date" value={annualLeaveForm.startDate} onChange={(event) => handleAnnualLeaveStartDateChange(event.target.value)} />
                   </label>
                   <label>
                     Bitiş
