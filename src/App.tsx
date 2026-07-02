@@ -620,6 +620,19 @@ function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
   return leaveStatusLabels[record.status];
 }
 
+function isAnnualLeaveUsed(record: AnnualLeaveRecord) {
+  return record.status === "used" || (record.status === "planned" && record.endDate < todayIso());
+}
+
+function isAnnualLeavePlanned(record: AnnualLeaveRecord) {
+  return record.status === "planned" && record.endDate >= todayIso();
+}
+
+function getAnnualLeaveDisplayStatus(record: AnnualLeaveRecord) {
+  if (isAnnualLeaveUsed(record)) return "Kullanıldı";
+  return leaveStatusLabels[record.status];
+}
+
 function groupLeaveRecords(records: AnnualLeaveRecord[], staffById: Map<string, StaffMember>): LeaveGroup[] {
   const grouped = new Map<string, LeaveGroup>();
 
@@ -1258,8 +1271,8 @@ function App() {
 
       current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0, annualLeaveForm.entitlementDays || 0);
       if (record.leaveType === "annual" && record.status !== "cancelled") {
-        if (record.status === "used") current.used += record.usedDays;
-        if (record.status === "planned") current.planned += record.usedDays;
+        if (isAnnualLeaveUsed(record)) current.used += record.usedDays;
+        if (isAnnualLeavePlanned(record)) current.planned += record.usedDays;
       }
       current.remaining = Math.max(0, current.entitlement - current.used - current.planned);
       summary.set(record.staffId, current);
@@ -1273,10 +1286,10 @@ function App() {
     () => ({
       records: annualLeaveRowsForYear.length,
       used: annualLeaveRowsForYear
-        .filter((record) => record.leaveType === "annual" && record.status === "used")
+        .filter((record) => record.leaveType === "annual" && isAnnualLeaveUsed(record))
         .reduce((sum, record) => sum + record.usedDays, 0),
       planned: annualLeaveRowsForYear
-        .filter((record) => record.leaveType === "annual" && record.status === "planned")
+        .filter((record) => record.leaveType === "annual" && isAnnualLeavePlanned(record))
         .reduce((sum, record) => sum + record.usedDays, 0),
       remaining: annualLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
     }),
@@ -1295,9 +1308,9 @@ function App() {
   const annualLeaveReportStats = useMemo(
     () => ({
       records: annualLeaveRowsForMonth.length,
-      used: annualLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
-      planned: annualLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
-      completed: annualLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) === "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
+      used: annualLeaveRowsForMonth.filter((record) => isAnnualLeaveUsed(record)).reduce((sum, record) => sum + record.usedDays, 0),
+      planned: annualLeaveRowsForMonth.filter((record) => isAnnualLeavePlanned(record)).reduce((sum, record) => sum + record.usedDays, 0),
+      completed: annualLeaveRowsForMonth.filter((record) => record.status === "completed").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: annualLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [annualLeaveRowsForMonth],
@@ -3154,7 +3167,7 @@ function App() {
           record.startDate,
           record.endDate,
           record.usedDays,
-          getLeaveDisplayStatus(record),
+          getAnnualLeaveDisplayStatus(record),
           record.notes,
         ];
       }),
@@ -4435,7 +4448,7 @@ function App() {
           <main className="workspace">
             <section className="metric-row" aria-label="Yıllık izin özeti">
               <Metric label="Kayıt" value={annualLeaveStats.records} />
-              <Metric label="Kullanılan" value={annualLeaveStats.used} tone="amber" />
+              <Metric label="Kullanıldı" value={annualLeaveStats.used} tone="amber" />
               <Metric label="Planlanan" value={annualLeaveStats.planned} tone="blue" />
               <Metric label="Kalan" value={annualLeaveStats.remaining} tone="green" />
             </section>
@@ -4533,7 +4546,7 @@ function App() {
                       <tr>
                         <th>Personel</th>
                         <th>Hak</th>
-                        <th>Kullanılan</th>
+                        <th>Kullanıldı</th>
                         <th>Planlanan</th>
                         <th>Kalan</th>
                       </tr>
@@ -4613,7 +4626,7 @@ function App() {
                         <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                         <td>{record.startDate} - {record.endDate}</td>
                         <td>{record.usedDays}</td>
-                        <td><span className="status-toggle">{getLeaveDisplayStatus(record)}</span></td>
+                        <td><span className="status-toggle">{getAnnualLeaveDisplayStatus(record)}</span></td>
                         <td>{record.notes}</td>
                         <td>
                           <div className="row-actions">
@@ -6130,7 +6143,7 @@ function LeavePrintReport({
           <strong>{stats.records}</strong>
         </div>
         <div>
-          <span>Kullanılan</span>
+          <span>Kullanıldı</span>
           <strong>{stats.used}</strong>
         </div>
         <div>
@@ -6168,7 +6181,7 @@ function LeavePrintReport({
                 <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                 <td>{record.startDate} - {record.endDate}</td>
                 <td>{record.usedDays}</td>
-                <td>{getLeaveDisplayStatus(record)}</td>
+                <td>{getAnnualLeaveDisplayStatus(record)}</td>
                 <td>{record.notes}</td>
               </tr>
             );
