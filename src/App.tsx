@@ -159,6 +159,17 @@ type HolidayWorkGroup = {
   notes: string[];
   records: HolidayWorkRecord[];
 };
+type LeaveGroup = {
+  id: string;
+  staffId: string;
+  year: number;
+  leaveType: AnnualLeaveType;
+  records: AnnualLeaveRecord[];
+  dateRanges: string[];
+  usedDays: number;
+  statusSummary: string;
+  notes: string[];
+};
 type HourlyLeaveFormState = {
   id: string;
   staffId: string;
@@ -607,6 +618,53 @@ function numberToTurkishText(value: number) {
 function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
   if (record.status === "planned" && record.endDate < todayIso()) return "Bitti";
   return leaveStatusLabels[record.status];
+}
+
+function groupLeaveRecords(records: AnnualLeaveRecord[], staffById: Map<string, StaffMember>): LeaveGroup[] {
+  const grouped = new Map<string, LeaveGroup>();
+
+  records.forEach((record) => {
+    const current =
+      grouped.get(record.staffId) ??
+      {
+        id: record.staffId,
+        staffId: record.staffId,
+        year: record.year,
+        leaveType: record.leaveType,
+        records: [],
+        dateRanges: [],
+        usedDays: 0,
+        statusSummary: "",
+        notes: [],
+      };
+
+    current.year = Math.min(current.year, record.year);
+    current.records.push(record);
+    current.dateRanges.push(`${record.startDate} - ${record.endDate}`);
+    if (record.status !== "cancelled") current.usedDays += record.usedDays;
+    if (record.notes.trim()) current.notes.push(record.notes.trim());
+    grouped.set(record.staffId, current);
+  });
+
+  return Array.from(grouped.values())
+    .map((group) => {
+      const statusCounts = group.records.reduce<Record<string, number>>((counts, record) => {
+        const label = getLeaveDisplayStatus(record);
+        return { ...counts, [label]: (counts[label] ?? 0) + 1 };
+      }, {});
+
+      return {
+        ...group,
+        dateRanges: uniqueValues(group.dateRanges).sort((a, b) => a.localeCompare(b)),
+        statusSummary: Object.entries(statusCounts).map(([label, count]) => `${count} ${label}`).join(", "),
+        notes: uniqueValues(group.notes),
+      };
+    })
+    .sort(
+      (a, b) =>
+        (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }) ||
+        a.staffId.localeCompare(b.staffId),
+    );
 }
 
 function safeFilename(value: string) {
@@ -1327,6 +1385,10 @@ function App() {
       cancelled: unpaidLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [unpaidLeaveRowsForMonth],
+  );
+  const unpaidLeaveGroupsForMonth = useMemo(
+    () => groupLeaveRecords(unpaidLeaveRowsForMonth, staffById),
+    [staffById, unpaidLeaveRowsForMonth],
   );
 
   async function refreshStaff() {
@@ -3099,6 +3161,27 @@ function App() {
     ];
   }
 
+  function getGroupedLeaveExportRows(groups: LeaveGroup[]) {
+    return [
+      ["Personel", "Departman", "Ünvan", "Kayıt", "Yıl", "Tür", "Tarih Aralıkları", "Toplam Gün", "Durum Özeti", "Notlar"],
+      ...groups.map((group) => {
+        const member = staffById.get(group.staffId);
+        return [
+          member?.name ?? "",
+          member?.department ?? "",
+          member?.title ?? "",
+          group.records.length,
+          group.year,
+          annualLeaveTypeLabels[group.leaveType],
+          group.dateRanges.join(", "),
+          group.usedDays,
+          group.statusSummary,
+          group.notes.join(" / "),
+        ];
+      }),
+    ];
+  }
+
   function handleExportAnnualLeaveExcel() {
     downloadExcelFile(`yillik-izin-raporu-${annualLeaveReportMonth}.xls`, [
       { title: `${formatMonthTr(annualLeaveReportMonth)} Yıllık İzin Raporu`, rows: getLeaveExportRows(annualLeaveRowsForMonth) },
@@ -3107,7 +3190,7 @@ function App() {
 
   function handleExportUnpaidLeaveExcel() {
     downloadExcelFile(`ucretsiz-izin-raporu-${unpaidLeaveReportMonth}.xls`, [
-      { title: `${formatMonthTr(unpaidLeaveReportMonth)} Ücretsiz İzin Raporu`, rows: getLeaveExportRows(unpaidLeaveRowsForMonth) },
+      { title: `${formatMonthTr(unpaidLeaveReportMonth)} Ücretsiz İzin Raporu`, rows: getGroupedLeaveExportRows(unpaidLeaveGroupsForMonth) },
     ]);
   }
 
@@ -4707,36 +4790,43 @@ function App() {
                   <thead>
                     <tr>
                       <th>Personel</th>
+                      <th>Kayıt</th>
                       <th>Yıl</th>
                       <th>Tür</th>
-                      <th>Tarih</th>
-                      <th>Gün</th>
-                      <th>Durum</th>
-                      <th>Not</th>
+                      <th>Tarih Aralıkları</th>
+                      <th>Toplam Gün</th>
+                      <th>Durum Özeti</th>
+                      <th>Notlar</th>
                       <th aria-label="İşlem" />
                     </tr>
                   </thead>
                   <tbody>
-                    {unpaidLeaveRecords.map((record) => (
-                      <tr key={record.id}>
+                    {unpaidLeaveGroupsForMonth.map((group) => (
+                      <tr key={group.id}>
                         <td>
-                          <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                          <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                          <strong>{staffById.get(group.staffId)?.name ?? ""}</strong>
+                          <span>{staffById.get(group.staffId)?.department ?? ""}</span>
                         </td>
-                        <td>{record.year}</td>
-                        <td>{annualLeaveTypeLabels[record.leaveType]}</td>
-                        <td>{record.startDate} - {record.endDate}</td>
-                        <td>{record.usedDays}</td>
-                        <td><span className="status-toggle">{getLeaveDisplayStatus(record)}</span></td>
-                        <td>{record.notes}</td>
+                        <td>{group.records.length}</td>
+                        <td>{group.year}</td>
+                        <td>{annualLeaveTypeLabels[group.leaveType]}</td>
+                        <td>{group.dateRanges.join(", ")}</td>
+                        <td>{group.usedDays}</td>
+                        <td><span className="status-toggle">{group.statusSummary}</span></td>
+                        <td>{group.notes.join(" / ") || "-"}</td>
                         <td>
                           <div className="row-actions">
-                            <button className="icon-button" onClick={() => handleEditUnpaidLeave(record)} title="Düzenle" aria-label="Ücretsiz izin kaydını düzenle">
-                              <Edit3 size={17} />
-                            </button>
-                            <button className="icon-button danger" onClick={() => void handleDeleteUnpaidLeave(record)} title="Sil" aria-label="Ücretsiz izin kaydını sil">
-                              <Trash2 size={17} />
-                            </button>
+                            {group.records.map((record) => (
+                              <span className="record-action-pair" key={record.id}>
+                                <small>{record.startDate}</small>
+                                <button className="icon-button" onClick={() => handleEditUnpaidLeave(record)} title={`${record.startDate} düzenle`} aria-label={`${record.startDate} ücretsiz izin kaydını düzenle`}>
+                                  <Edit3 size={17} />
+                                </button>
+                                <button className="icon-button danger" onClick={() => void handleDeleteUnpaidLeave(record)} title={`${record.startDate} sil`} aria-label={`${record.startDate} ücretsiz izin kaydını sil`}>
+                                  <Trash2 size={17} />
+                                </button>
+                              </span>
+                            ))}
                           </div>
                         </td>
                       </tr>
@@ -4744,7 +4834,7 @@ function App() {
                   </tbody>
                 </table>
               </div>
-              {!unpaidLeaveRecords.length && <div className="empty-state">Ücretsiz izin kaydı bulunmuyor.</div>}
+              {!unpaidLeaveGroupsForMonth.length && <div className="empty-state">Seçili ayda ücretsiz izin kaydı bulunmuyor.</div>}
             </section>
           </main>
         )}
@@ -5486,8 +5576,8 @@ function App() {
             title="Yıllık İzin Raporu"
           />
         ) : printMode === "unpaidLeave" ? (
-          <LeavePrintReport
-            records={unpaidLeaveRowsForMonth}
+          <GroupedLeavePrintReport
+            groups={unpaidLeaveGroupsForMonth}
             staffById={staffById}
             stats={unpaidLeaveReportStats}
             reportMonth={unpaidLeaveReportMonth}
@@ -6080,6 +6170,89 @@ function LeavePrintReport({
                 <td>{record.usedDays}</td>
                 <td>{getLeaveDisplayStatus(record)}</td>
                 <td>{record.notes}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </article>
+  );
+}
+
+function GroupedLeavePrintReport({
+  groups,
+  staffById,
+  stats,
+  reportMonth,
+  title,
+}: {
+  groups: LeaveGroup[];
+  staffById: Map<string, StaffMember>;
+  stats: { records: number; used: number; planned: number; completed: number; cancelled: number };
+  reportMonth: string;
+  title: string;
+}) {
+  const sortedGroups = [...groups].sort(
+    (a, b) =>
+      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }) ||
+      a.staffId.localeCompare(b.staffId),
+  );
+
+  return (
+    <article className="holiday-report-page">
+      <header className="holiday-report-header">
+        <div>
+          <strong>{formatMonthTr(reportMonth)} {title}</strong>
+          <span>{new Date().toLocaleString("tr-TR")} tarihinde oluşturuldu</span>
+        </div>
+        <CalendarCheck size={26} aria-hidden="true" />
+      </header>
+      <section className="holiday-report-summary">
+        <div>
+          <span>Kayıt</span>
+          <strong>{stats.records}</strong>
+        </div>
+        <div>
+          <span>Kullanılan</span>
+          <strong>{stats.used}</strong>
+        </div>
+        <div>
+          <span>Planlanan</span>
+          <strong>{stats.planned}</strong>
+        </div>
+        <div>
+          <span>Bitti</span>
+          <strong>{stats.completed}</strong>
+        </div>
+      </section>
+      <table className="holiday-report-table">
+        <thead>
+          <tr>
+            <th>No</th>
+            <th>Personel</th>
+            <th>Departman</th>
+            <th>Ünvan</th>
+            <th>Kayıt</th>
+            <th>Tarih Aralıkları</th>
+            <th>Toplam Gün</th>
+            <th>Durum Özeti</th>
+            <th>Notlar</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sortedGroups.map((group, index) => {
+            const member = staffById.get(group.staffId);
+            return (
+              <tr key={group.id}>
+                <td>{index + 1}</td>
+                <td>{member?.name ?? ""}</td>
+                <td>{member?.department ?? ""}</td>
+                <td>{member?.title ?? ""}</td>
+                <td>{group.records.length}</td>
+                <td>{group.dateRanges.join(", ")}</td>
+                <td>{group.usedDays}</td>
+                <td>{group.statusSummary}</td>
+                <td>{group.notes.join(" / ")}</td>
               </tr>
             );
           })}
