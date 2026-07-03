@@ -645,16 +645,32 @@ function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
   return leaveStatusLabels[record.status];
 }
 
+function getAnnualLeaveUsageBreakdown(record: AnnualLeaveRecord) {
+  if (record.status === "cancelled") return { used: 0, planned: 0 };
+  if (record.status === "used" || record.status === "completed") return { used: record.usedDays, planned: 0 };
+  if (record.status !== "planned") return { used: 0, planned: 0 };
+
+  const today = todayIso();
+  if (today < record.startDate) return { used: 0, planned: record.usedDays };
+
+  const usedUntil = today < record.endDate ? today : record.endDate;
+  const used = Math.min(record.usedDays, countLeaveDays(record.startDate, usedUntil));
+  const planned = Math.max(0, record.usedDays - used);
+  return { used, planned };
+}
+
 function isAnnualLeaveUsed(record: AnnualLeaveRecord) {
-  return record.status === "used" || (record.status === "planned" && record.endDate < todayIso());
+  return getAnnualLeaveUsageBreakdown(record).used > 0;
 }
 
 function isAnnualLeavePlanned(record: AnnualLeaveRecord) {
-  return record.status === "planned" && record.endDate >= todayIso();
+  return getAnnualLeaveUsageBreakdown(record).planned > 0;
 }
 
 function getAnnualLeaveDisplayStatus(record: AnnualLeaveRecord) {
-  if (isAnnualLeaveUsed(record)) return "Kullanıldı";
+  const breakdown = getAnnualLeaveUsageBreakdown(record);
+  if (breakdown.used > 0 && breakdown.planned > 0) return "Kısmen Kullanıldı";
+  if (breakdown.used > 0) return "Kullanıldı";
   return leaveStatusLabels[record.status];
 }
 
@@ -1296,8 +1312,9 @@ function App() {
 
       current.entitlement = Math.max(current.entitlement, record.entitlementDays || 0);
       if (record.leaveType === "annual" && record.status !== "cancelled") {
-        if (isAnnualLeaveUsed(record)) current.used += record.usedDays;
-        if (isAnnualLeavePlanned(record)) current.planned += record.usedDays;
+        const breakdown = getAnnualLeaveUsageBreakdown(record);
+        current.used += breakdown.used;
+        current.planned += breakdown.planned;
       }
       current.remaining = Math.max(0, current.entitlement - current.used - current.planned);
       summary.set(record.staffId, current);
@@ -1311,11 +1328,11 @@ function App() {
     () => ({
       records: annualLeaveRowsForYear.length,
       used: annualLeaveRowsForYear
-        .filter((record) => record.leaveType === "annual" && isAnnualLeaveUsed(record))
-        .reduce((sum, record) => sum + record.usedDays, 0),
+        .filter((record) => record.leaveType === "annual")
+        .reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).used, 0),
       planned: annualLeaveRowsForYear
-        .filter((record) => record.leaveType === "annual" && isAnnualLeavePlanned(record))
-        .reduce((sum, record) => sum + record.usedDays, 0),
+        .filter((record) => record.leaveType === "annual")
+        .reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).planned, 0),
       remaining: annualLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
     }),
     [annualLeaveRowsForYear, annualLeaveSummaries],
@@ -1333,8 +1350,8 @@ function App() {
   const annualLeaveReportStats = useMemo(
     () => ({
       records: annualLeaveRowsForMonth.length,
-      used: annualLeaveRowsForMonth.filter((record) => isAnnualLeaveUsed(record)).reduce((sum, record) => sum + record.usedDays, 0),
-      planned: annualLeaveRowsForMonth.filter((record) => isAnnualLeavePlanned(record)).reduce((sum, record) => sum + record.usedDays, 0),
+      used: annualLeaveRowsForMonth.reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).used, 0),
+      planned: annualLeaveRowsForMonth.reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).planned, 0),
       completed: annualLeaveRowsForMonth.filter((record) => record.status === "completed").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: annualLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
@@ -3220,9 +3237,10 @@ function App() {
 
   function getLeaveExportRows(records: AnnualLeaveRecord[]) {
     return [
-      ["Personel", "Departman", "Ünvan", "Yıl", "Tür", "Başlangıç", "Bitiş", "Gün", "Durum", "Not"],
+      ["Personel", "Departman", "Ünvan", "Yıl", "Tür", "Başlangıç", "Bitiş", "Toplam Gün", "Kullanıldı", "Planlanan", "Durum", "Not"],
       ...records.map((record) => {
         const member = staffById.get(record.staffId);
+        const annualBreakdown = getAnnualLeaveUsageBreakdown(record);
         return [
           member?.name ?? "",
           member?.department ?? "",
@@ -3232,6 +3250,8 @@ function App() {
           record.startDate,
           record.endDate,
           record.usedDays,
+          annualBreakdown.used,
+          annualBreakdown.planned,
           getAnnualLeaveDisplayStatus(record),
           record.notes,
         ];
@@ -4675,40 +4695,47 @@ function App() {
                       <th>Tür</th>
                       <th>Tarih</th>
                       <th>Gün</th>
+                      <th>Kullanıldı</th>
+                      <th>Planlanan</th>
                       <th>Durum</th>
                       <th>Not</th>
                       <th aria-label="İşlem" />
                     </tr>
                   </thead>
                   <tbody>
-                    {annualLeaveTrackingRecords.map((record) => (
-                      <tr key={record.id}>
-                        <td>
-                          <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                          <span>{staffById.get(record.staffId)?.department ?? ""}</span>
-                        </td>
-                        <td>{record.year}</td>
-                        <td>{annualLeaveTypeLabels[record.leaveType]}</td>
-                        <td>{record.startDate} - {record.endDate}</td>
-                        <td>{record.usedDays}</td>
-                        <td><span className="status-toggle">{getAnnualLeaveDisplayStatus(record)}</span></td>
-                        <td>{record.notes}</td>
-                        <td>
-                          <div className="row-actions">
-                            <button className="icon-button" onClick={() => handleEditAnnualLeave(record)} title="Düzenle" aria-label="İzin kaydını düzenle">
-                              <Edit3 size={17} />
-                            </button>
-                            <button className="icon-button danger" onClick={() => void handleDeleteAnnualLeave(record)} title="Sil" aria-label="İzin kaydını sil">
-                              <Trash2 size={17} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                    {annualLeaveRowsForMonth.map((record) => {
+                      const annualBreakdown = getAnnualLeaveUsageBreakdown(record);
+                      return (
+                        <tr key={record.id}>
+                          <td>
+                            <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
+                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
+                          </td>
+                          <td>{record.year}</td>
+                          <td>{annualLeaveTypeLabels[record.leaveType]}</td>
+                          <td>{record.startDate} - {record.endDate}</td>
+                          <td>{record.usedDays}</td>
+                          <td>{annualBreakdown.used}</td>
+                          <td>{annualBreakdown.planned}</td>
+                          <td><span className="status-toggle">{getAnnualLeaveDisplayStatus(record)}</span></td>
+                          <td>{record.notes}</td>
+                          <td>
+                            <div className="row-actions">
+                              <button className="icon-button" onClick={() => handleEditAnnualLeave(record)} title="Düzenle" aria-label="İzin kaydını düzenle">
+                                <Edit3 size={17} />
+                              </button>
+                              <button className="icon-button danger" onClick={() => void handleDeleteAnnualLeave(record)} title="Sil" aria-label="İzin kaydını sil">
+                                <Trash2 size={17} />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
-              {!annualLeaveTrackingRecords.length && <div className="empty-state">Yıllık izin kaydı bulunmuyor.</div>}
+              {!annualLeaveRowsForMonth.length && <div className="empty-state">Seçili ayda yıllık izin kaydı bulunmuyor.</div>}
             </section>
           </main>
         )}
@@ -6230,6 +6257,8 @@ function LeavePrintReport({
             <th>Tür</th>
             <th>Tarih</th>
             <th>Gün</th>
+            <th>Kullanıldı</th>
+            <th>Planlanan</th>
             <th>Durum</th>
             <th>Not</th>
           </tr>
@@ -6237,6 +6266,7 @@ function LeavePrintReport({
         <tbody>
           {sortedRecords.map((record, index) => {
             const member = staffById.get(record.staffId);
+            const annualBreakdown = getAnnualLeaveUsageBreakdown(record);
             return (
               <tr key={record.id}>
                 <td>{index + 1}</td>
@@ -6246,6 +6276,8 @@ function LeavePrintReport({
                 <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                 <td>{record.startDate} - {record.endDate}</td>
                 <td>{record.usedDays}</td>
+                <td>{annualBreakdown.used}</td>
+                <td>{annualBreakdown.planned}</td>
                 <td>{getAnnualLeaveDisplayStatus(record)}</td>
                 <td>{record.notes}</td>
               </tr>
