@@ -1934,6 +1934,12 @@ function App() {
     setEditingStaff({ ...member });
   }
 
+  function handleStartEditProfileStaff(member: StaffMember) {
+    setProfileStaffId(member.id);
+    setEditingStaff({ ...member });
+    setActiveTab("staff");
+  }
+
   async function handleUpdateStaff(event: FormEvent) {
     event.preventDefault();
     if (!editingStaff || !editingStaff.name.trim()) return;
@@ -1955,6 +1961,7 @@ function App() {
         endDate: editingStaff.endDate,
       });
       await saveAuditLog("Personel güncellendi", editingStaff.name.trim());
+      setProfileStaffId(editingStaff.id);
       setEditingStaff(null);
       await refreshStaff();
       await refreshAuditLogs();
@@ -4984,6 +4991,10 @@ function App() {
                       Personel profili
                     </span>
                     <h2>{profileStaff.name}</h2>
+                    <button className="secondary-action" type="button" onClick={() => handleStartEditProfileStaff(profileStaff)}>
+                      <Edit3 size={18} aria-hidden="true" />
+                      Düzenle
+                    </button>
                     <p>{[profileStaff.department, profileStaff.title].filter(Boolean).join(" / ") || "Departman ve ünvan bilgisi yok"}</p>
                   </div>
                   <div className="profile-dates">
