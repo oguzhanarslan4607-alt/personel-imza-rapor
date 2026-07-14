@@ -171,6 +171,23 @@ function sortStaff(staff: StaffMember[]) {
   );
 }
 
+function normalizeStaffMember(member: StaffMember): StaffMember {
+  return {
+    ...member,
+    name: member.name ?? "",
+    department: member.department ?? "",
+    title: member.title ?? "",
+    nationalId: member.nationalId ?? "",
+    phone: member.phone ?? "",
+    socialSecurityCode: member.socialSecurityCode ?? "",
+    shiftType: member.shiftType ?? "",
+    showOnSignatureSheet: member.showOnSignatureSheet !== false,
+    fixedStaff: Boolean(member.fixedStaff),
+    startDate: member.startDate ?? "",
+    endDate: member.endDate ?? "",
+  };
+}
+
 export async function loadStaff(): Promise<StaffMember[]> {
   if (db) {
     try {
@@ -187,25 +204,29 @@ export async function loadStaff(): Promise<StaffMember[]> {
 }
 
 export async function saveStaffMember(member: StaffMember) {
+  const normalizedMember = normalizeStaffMember(member);
+
   if (db) {
     await waitForSignedIn();
-    await setDoc(doc(db, "staff", member.id), {
-      ...member,
+    await setDoc(doc(db, "staff", normalizedMember.id), {
+      ...normalizedMember,
       updatedAt: serverTimestamp(),
     });
     return;
   }
 
   const staff = readLocal<StaffMember[]>(STAFF_KEY, []);
-  const next = sortStaff([...staff.filter((item) => item.id !== member.id), member]);
+  const next = sortStaff([...staff.filter((item) => item.id !== normalizedMember.id), normalizedMember]);
   writeLocal(STAFF_KEY, next);
 }
 
 export async function saveStaffMembers(members: StaffMember[]) {
+  const normalizedMembers = members.map(normalizeStaffMember);
+
   if (db) {
     await waitForSignedIn();
     const batch = writeBatch(db);
-    members.forEach((member) => {
+    normalizedMembers.forEach((member) => {
       batch.set(doc(db, "staff", member.id), {
         ...member,
         updatedAt: serverTimestamp(),
@@ -217,7 +238,7 @@ export async function saveStaffMembers(members: StaffMember[]) {
 
   const staff = readLocal<StaffMember[]>(STAFF_KEY, []);
   const merged = new Map(staff.map((member) => [member.id, member]));
-  members.forEach((member) => merged.set(member.id, member));
+  normalizedMembers.forEach((member) => merged.set(member.id, member));
   writeLocal(STAFF_KEY, sortStaff(Array.from(merged.values())));
 }
 
