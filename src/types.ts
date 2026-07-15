@@ -1,5 +1,6 @@
 export type AttendanceStatus = "present" | "late" | "absent" | "excused";
 export type IncapacityStatus = "active" | "completed" | "cancelled";
+export type IncapacityReportType = "illness" | "work_accident" | "maternity" | "occupational_disease";
 export type HolidayCompensationType = "paid" | "leave" | "none";
 export type AnnualLeaveType = "annual" | "excuse" | "unpaid" | "other";
 export type LeaveStatus = "planned" | "used" | "completed" | "cancelled";
@@ -29,6 +30,8 @@ export type AttendanceRecord = {
   checkInTime: string;
   status: AttendanceStatus;
   lateReason: string;
+  source?: "manual" | "incapacity";
+  incapacityReportId?: string;
   updatedAt?: string;
 };
 
@@ -71,11 +74,16 @@ export type IncapacityReportRecord = {
   id: string;
   staffId: string;
   reportNumber?: string;
+  reportType?: IncapacityReportType;
   startDate: string;
   endDate: string;
   dayCount: number;
   reason: string;
   status: IncapacityStatus;
+  sgkNotified?: boolean;
+  sgkNotificationDate?: string;
+  notificationDeadline?: string;
+  reminderEnabled?: boolean;
   notes: string;
   createdAt: string;
   updatedAt?: string;
@@ -131,4 +139,20 @@ export type AppSettings = {
   lateAfterMinutes: number;
   rowsPerPrintSide: number;
   theme: "light" | "dark";
+};
+
+export type AppBackup = {
+  exportedAt?: string;
+  firebaseProjectId?: string;
+  settings?: Partial<AppSettings>;
+  staff?: StaffMember[];
+  attendance?: AttendanceRecord[];
+  printArchives?: PrintArchiveRecord[];
+  dayLocks?: DayLockRecord[];
+  deletedAttendance?: DeletedAttendanceRecord[];
+  incapacityReports?: IncapacityReportRecord[];
+  holidayWorkRecords?: HolidayWorkRecord[];
+  hourlyLeaveRecords?: HourlyLeaveRecord[];
+  annualLeaveRecords?: AnnualLeaveRecord[];
+  auditLogs?: AuditLogRecord[];
 };

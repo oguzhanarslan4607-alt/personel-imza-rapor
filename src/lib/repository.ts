@@ -24,6 +24,8 @@ import {
 } from "firebase/firestore";
 import type {
   AnnualLeaveRecord,
+  AppBackup,
+  AppSettings,
   AttendanceRecord,
   AuditLogRecord,
   DayLockRecord,
@@ -45,6 +47,7 @@ const INCAPACITY_REPORT_KEY = "personel-imza.incapacityReports.v1";
 const HOLIDAY_WORK_KEY = "personel-imza.holidayWork.v1";
 const ANNUAL_LEAVE_KEY = "personel-imza.annualLeave.v1";
 const HOURLY_LEAVE_KEY = "personel-imza.hourlyLeave.v1";
+const SETTINGS_KEY = "personel-imza.settings.v1";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -161,6 +164,96 @@ function writeLocal<T>(key: string, value: T) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+export async function loadAppSettings(): Promise<Partial<AppSettings> | null> {
+  if (db) {
+    await waitForSignedIn();
+    const snapshot = await getDoc(doc(db, "settings", "company"));
+    if (!snapshot.exists()) return null;
+    const data = snapshot.data();
+    const settings: Partial<AppSettings> = {};
+    if (typeof data.companyName === "string") settings.companyName = data.companyName;
+    if (typeof data.formTitle === "string") settings.formTitle = data.formTitle;
+    if (typeof data.shiftStart === "string") settings.shiftStart = data.shiftStart;
+    if (typeof data.lateAfterMinutes === "number") settings.lateAfterMinutes = data.lateAfterMinutes;
+    if (typeof data.rowsPerPrintSide === "number") settings.rowsPerPrintSide = data.rowsPerPrintSide;
+    if (data.theme === "light" || data.theme === "dark") settings.theme = data.theme;
+    return settings;
+  }
+
+  return readLocal<Partial<AppSettings> | null>(SETTINGS_KEY, null);
+}
+
+export async function saveAppSettings(settings: AppSettings) {
+  if (db) {
+    await waitForSignedIn();
+    await setDoc(doc(db, "settings", "company"), {
+      ...settings,
+      updatedAt: serverTimestamp(),
+      updatedBy: currentUser?.email ?? null,
+    });
+    return;
+  }
+
+  writeLocal(SETTINGS_KEY, settings);
+}
+
+function mergeLocalRecords<T extends { id: string }>(key: string, incoming: T[]) {
+  const merged = new Map(readLocal<T[]>(key, []).map((record) => [record.id, record]));
+  incoming.forEach((record) => merged.set(record.id, record));
+  writeLocal(key, Array.from(merged.values()));
+}
+
+async function restoreFirestoreCollection(collectionName: string, records: Array<{ id: string }>) {
+  if (!db || !records.length) return;
+
+  for (let offset = 0; offset < records.length; offset += 400) {
+    const batch = writeBatch(db);
+    records.slice(offset, offset + 400).forEach((record) => {
+      batch.set(doc(db!, collectionName, record.id), record, { merge: true });
+    });
+    await batch.commit();
+  }
+}
+
+export async function restoreBackup(backup: AppBackup) {
+  const collections: Array<[string, Array<{ id: string }>]> = [
+    ["staff", backup.staff ?? []],
+    ["attendance", backup.attendance ?? []],
+    ["printArchives", backup.printArchives ?? []],
+    ["dayLocks", backup.dayLocks ?? []],
+    ["deletedAttendance", backup.deletedAttendance ?? []],
+    ["incapacityReports", backup.incapacityReports ?? []],
+    ["holidayWork", backup.holidayWorkRecords ?? []],
+    ["hourlyLeave", backup.hourlyLeaveRecords ?? []],
+    ["annualLeave", backup.annualLeaveRecords ?? []],
+    ["auditLogs", backup.auditLogs ?? []],
+  ];
+
+  if (db) {
+    await waitForSignedIn();
+    for (const [collectionName, records] of collections) {
+      if (collectionName === "auditLogs" && records.length) {
+        const existingIds = new Set((await getDocs(collection(db, "auditLogs"))).docs.map((item) => item.id));
+        await restoreFirestoreCollection(collectionName, records.filter((record) => !existingIds.has(record.id)));
+      } else {
+        await restoreFirestoreCollection(collectionName, records);
+      }
+    }
+    return;
+  }
+
+  mergeLocalRecords(STAFF_KEY, backup.staff ?? []);
+  mergeLocalRecords(ATTENDANCE_KEY, backup.attendance ?? []);
+  mergeLocalRecords(PRINT_ARCHIVE_KEY, backup.printArchives ?? []);
+  mergeLocalRecords(DAY_LOCK_KEY, backup.dayLocks ?? []);
+  mergeLocalRecords(DELETED_ATTENDANCE_KEY, backup.deletedAttendance ?? []);
+  mergeLocalRecords(INCAPACITY_REPORT_KEY, backup.incapacityReports ?? []);
+  mergeLocalRecords(HOLIDAY_WORK_KEY, backup.holidayWorkRecords ?? []);
+  mergeLocalRecords(HOURLY_LEAVE_KEY, backup.hourlyLeaveRecords ?? []);
+  mergeLocalRecords(ANNUAL_LEAVE_KEY, backup.annualLeaveRecords ?? []);
+  mergeLocalRecords(AUDIT_LOG_KEY, backup.auditLogs ?? []);
+}
+
 function sortStaff(staff: StaffMember[]) {
   return [...staff].sort(
     (a, b) =>
@@ -196,7 +289,7 @@ export async function loadStaff(): Promise<StaffMember[]> {
       return sortStaff(snapshot.docs.map((item) => item.data() as StaffMember));
     } catch (error) {
       console.warn("Firebase staff read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -264,7 +357,7 @@ export async function loadAttendanceByDate(date: string): Promise<AttendanceReco
       return snapshot.docs.map((item) => item.data() as AttendanceRecord);
     } catch (error) {
       console.warn("Firebase attendance read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -286,7 +379,7 @@ export async function loadAttendanceRange(startDate: string, endDate: string): P
       return snapshot.docs.map((item) => item.data() as AttendanceRecord);
     } catch (error) {
       console.warn("Firebase attendance range read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -334,7 +427,7 @@ export async function loadDeletedAttendance(limit = 80): Promise<DeletedAttendan
       return snapshot.docs.slice(0, limit).map((item) => item.data() as DeletedAttendanceRecord);
     } catch (error) {
       console.warn("Firebase deleted attendance read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -383,7 +476,7 @@ export async function loadPrintArchives(): Promise<PrintArchiveRecord[]> {
       return snapshot.docs.map((item) => item.data() as PrintArchiveRecord);
     } catch (error) {
       console.warn("Firebase print archive read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -416,11 +509,21 @@ export async function loadDayLock(date: string): Promise<DayLockRecord | null> {
       return snapshot.exists() ? (snapshot.data() as DayLockRecord) : null;
     } catch (error) {
       console.warn("Firebase day lock read failed.", error);
-      return null;
+      throw error;
     }
   }
 
   return readLocal<DayLockRecord[]>(DAY_LOCK_KEY, []).find((record) => record.date === date) ?? null;
+}
+
+export async function loadDayLocks(): Promise<DayLockRecord[]> {
+  if (db) {
+    await waitForSignedIn();
+    const snapshot = await getDocs(collection(db, "dayLocks"));
+    return snapshot.docs.map((item) => item.data() as DayLockRecord);
+  }
+
+  return readLocal<DayLockRecord[]>(DAY_LOCK_KEY, []);
 }
 
 export async function saveDayLock(record: DayLockRecord) {
@@ -446,7 +549,7 @@ export async function loadAuditLogs(limit = 80): Promise<AuditLogRecord[]> {
       return snapshot.docs.slice(0, limit).map((item) => item.data() as AuditLogRecord);
     } catch (error) {
       console.warn("Firebase audit log read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -485,7 +588,7 @@ export async function loadIncapacityReports(): Promise<IncapacityReportRecord[]>
       return snapshot.docs.map((item) => item.data() as IncapacityReportRecord);
     } catch (error) {
       console.warn("Firebase incapacity reports read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -526,7 +629,7 @@ export async function loadHolidayWorkRecords(): Promise<HolidayWorkRecord[]> {
       return snapshot.docs.map((item) => item.data() as HolidayWorkRecord);
     } catch (error) {
       console.warn("Firebase holiday work read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -567,7 +670,7 @@ export async function loadAnnualLeaveRecords(): Promise<AnnualLeaveRecord[]> {
       return snapshot.docs.map((item) => item.data() as AnnualLeaveRecord);
     } catch (error) {
       console.warn("Firebase annual leave read failed.", error);
-      return [];
+      throw error;
     }
   }
 
@@ -608,7 +711,7 @@ export async function loadHourlyLeaveRecords(): Promise<HourlyLeaveRecord[]> {
       return snapshot.docs.map((item) => item.data() as HourlyLeaveRecord);
     } catch (error) {
       console.warn("Firebase hourly leave read failed.", error);
-      return [];
+      throw error;
     }
   }
 

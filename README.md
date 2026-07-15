@@ -9,6 +9,13 @@ npm.cmd install
 npm.cmd run dev
 ```
 
+Test ve üretim derlemesi:
+
+```bash
+npm.cmd test
+npm.cmd run build
+```
+
 Yerel adres:
 
 ```text
@@ -51,6 +58,9 @@ Firestore kuralları `staff` ve `attendance` verilerine sadece `admins/{uid}` be
 - `admins`: yönetici yetki kayıtları
 - `staff`: personel kartları
 - `attendance`: günlük giriş kayıtları
+- `settings/company`: tüm cihazlarda ortak firma ve mesai ayarları
+- `incapacityReports`: iş göremezlik ve SGK takip bilgileri
+- `dayLocks`: sunucu tarafında da uygulanan gün kilitleri
 
 Güvenlik kuralları için başlangıç dosyası: `firebase.rules`.
 
@@ -60,5 +70,6 @@ Güvenlik kuralları için başlangıç dosyası: `firebase.rules`.
 2. `İmza Föyü` ekranından seçili gün için A4 ön/arka imza föyünü yazdırın.
 3. Gün sonunda `Günlük Kayıt` ekranında giriş saati, durum ve açıklamaları girip kaydedin.
 4. `Raporlar` ekranında tarih aralığı seçip kayıtları getirin veya CSV alın.
+5. `Ayarlar` ekranından JSON yedeği indirebilir veya mevcut verilerle birleştirerek geri yükleyebilirsiniz.
 
 Varsayılan baskı düzeni 85 kişiyi tek kağıdın ön/arka yüzüne sığdırmak için sayfa başına 43 satır kullanır.
