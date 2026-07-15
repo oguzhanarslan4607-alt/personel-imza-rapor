@@ -22,14 +22,6 @@ import {
   writeBatch,
   type Firestore,
 } from "firebase/firestore";
-import {
-  deleteObject,
-  getDownloadURL,
-  getStorage,
-  ref,
-  uploadBytes,
-  type FirebaseStorage,
-} from "firebase/storage";
 import type {
   AnnualLeaveRecord,
   AppBackup,
@@ -73,12 +65,10 @@ let db: Firestore | null = null;
 let auth: Auth | null = null;
 let currentUser: User | null = null;
 let authReady: Promise<void> | null = null;
-let storage: FirebaseStorage | null = null;
 
 if (firebaseConfigured) {
   const app = initializeApp(firebaseConfig);
   db = getFirestore(app);
-  storage = getStorage(app);
   const appAuth = getAuth(app);
   auth = appAuth;
   let authReadyResolved = false;
@@ -205,47 +195,6 @@ export async function saveAppSettings(settings: AppSettings) {
   }
 
   writeLocal(SETTINGS_KEY, settings);
-}
-
-function readFileAsDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("Dosya okunamadı."));
-    reader.readAsDataURL(file);
-  });
-}
-
-export async function uploadIncapacityAttachment(reportId: string, file: File) {
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "-");
-  const path = `incapacityReports/${reportId}/${crypto.randomUUID()}-${safeName}`;
-
-  if (storage) {
-    await waitForSignedIn();
-    const storageRef = ref(storage, path);
-    await uploadBytes(storageRef, file, { contentType: file.type || undefined });
-    return {
-      name: file.name,
-      url: await getDownloadURL(storageRef),
-      path,
-      contentType: file.type,
-      size: file.size,
-    };
-  }
-
-  return {
-    name: file.name,
-    url: await readFileAsDataUrl(file),
-    path: "",
-    contentType: file.type,
-    size: file.size,
-  };
-}
-
-export async function deleteIncapacityAttachment(path?: string) {
-  if (!storage || !path) return;
-  await waitForSignedIn();
-  await deleteObject(ref(storage, path));
 }
 
 function mergeLocalRecords<T extends { id: string }>(key: string, incoming: T[]) {

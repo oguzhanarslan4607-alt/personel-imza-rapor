@@ -84,11 +84,6 @@ export type IncapacityReportRecord = {
   sgkNotificationDate?: string;
   notificationDeadline?: string;
   reminderEnabled?: boolean;
-  attachmentName?: string;
-  attachmentUrl?: string;
-  attachmentPath?: string;
-  attachmentContentType?: string;
-  attachmentSize?: number;
   notes: string;
   createdAt: string;
   updatedAt?: string;

@@ -59,12 +59,8 @@ Firestore kuralları `staff` ve `attendance` verilerine sadece `admins/{uid}` be
 - `staff`: personel kartları
 - `attendance`: günlük giriş kayıtları
 - `settings/company`: tüm cihazlarda ortak firma ve mesai ayarları
-- `incapacityReports`: iş göremezlik, SGK takip ve dosya bilgileri
+- `incapacityReports`: iş göremezlik ve SGK takip bilgileri
 - `dayLocks`: sunucu tarafında da uygulanan gün kilitleri
-
-İş göremezlik raporlarının PDF ve görsel ekleri Firebase Storage içindeki
-`incapacityReports/{reportId}` yolunda tutulur. `firebase deploy` komutu Firestore,
-Storage ve Hosting kurallarını birlikte yayımlar.
 
 Güvenlik kuralları için başlangıç dosyası: `firebase.rules`.
 

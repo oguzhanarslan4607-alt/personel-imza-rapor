@@ -46,7 +46,6 @@ import {
   deleteHolidayWorkRecord,
   deleteHourlyLeaveRecord,
   deleteIncapacityReport,
-  deleteIncapacityAttachment,
   deleteStaffMember,
   firebaseConfigured,
   firebaseProjectId,
@@ -81,7 +80,6 @@ import {
   restoreBackup,
   signInAdmin,
   signOutAdmin,
-  uploadIncapacityAttachment,
   type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
@@ -990,14 +988,8 @@ function App() {
     sgkNotificationDate: "",
     notificationDeadline: "",
     reminderEnabled: true,
-    attachmentName: "",
-    attachmentUrl: "",
-    attachmentPath: "",
-    attachmentContentType: "",
-    attachmentSize: 0,
     notes: "",
   });
-  const [incapacityAttachmentFile, setIncapacityAttachmentFile] = useState<File | null>(null);
   const [holidayWorkForm, setHolidayWorkForm] = useState({
     id: "",
     staffId: "",
@@ -2349,14 +2341,8 @@ function App() {
       sgkNotificationDate: "",
       notificationDeadline: "",
       reminderEnabled: true,
-      attachmentName: "",
-      attachmentUrl: "",
-      attachmentPath: "",
-      attachmentContentType: "",
-      attachmentSize: 0,
       notes: "",
     });
-    setIncapacityAttachmentFile(null);
   }
 
   function handleIncapacityStartDateChange(date: string) {
@@ -2374,14 +2360,6 @@ function App() {
 
     const existing = incapacityReports.find((record) => record.id === incapacityForm.id);
     const reportId = incapacityForm.id || crypto.randomUUID();
-    let attachment = {
-      name: incapacityForm.attachmentName,
-      url: incapacityForm.attachmentUrl,
-      path: incapacityForm.attachmentPath,
-      contentType: incapacityForm.attachmentContentType,
-      size: incapacityForm.attachmentSize,
-    };
-
     const record: IncapacityReportRecord = {
       id: reportId,
       staffId,
@@ -2406,32 +2384,8 @@ function App() {
       return;
     }
 
-    if (incapacityAttachmentFile && incapacityAttachmentFile.size > 10 * 1024 * 1024) {
-      setMessage("Rapor dosyası en fazla 10 MB olabilir.");
-      return;
-    }
-
-    if (
-      incapacityAttachmentFile &&
-      incapacityAttachmentFile.type !== "application/pdf" &&
-      !incapacityAttachmentFile.type.startsWith("image/")
-    ) {
-      setMessage("Rapor dosyası PDF veya görsel formatında olmalıdır.");
-      return;
-    }
-
     setBusy(true);
     try {
-      if (incapacityAttachmentFile) {
-        attachment = await uploadIncapacityAttachment(reportId, incapacityAttachmentFile);
-      }
-      Object.assign(record, {
-        attachmentName: attachment.name,
-        attachmentUrl: attachment.url,
-        attachmentPath: attachment.path,
-        attachmentContentType: attachment.contentType,
-        attachmentSize: attachment.size,
-      });
       await saveIncapacityReport(record);
       let cleanupResult = { saved: 0, removed: 0, skipped: 0, locked: 0 };
       if (existing && existing.staffId !== record.staffId) {
@@ -2441,9 +2395,6 @@ function App() {
         record,
         existing?.staffId === record.staffId ? existing : undefined,
       );
-      if (incapacityAttachmentFile && existing?.attachmentPath && existing.attachmentPath !== attachment.path) {
-        await deleteIncapacityAttachment(existing.attachmentPath).catch(() => undefined);
-      }
       await saveAuditLog(incapacityForm.id ? "İş göremezlik raporu güncellendi" : "İş göremezlik raporu eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
       await refreshHrRecords();
       if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
@@ -2475,14 +2426,8 @@ function App() {
       sgkNotificationDate: record.sgkNotificationDate ?? "",
       notificationDeadline: record.notificationDeadline ?? "",
       reminderEnabled: record.reminderEnabled !== false,
-      attachmentName: record.attachmentName ?? "",
-      attachmentUrl: record.attachmentUrl ?? "",
-      attachmentPath: record.attachmentPath ?? "",
-      attachmentContentType: record.attachmentContentType ?? "",
-      attachmentSize: record.attachmentSize ?? 0,
       notes: record.notes,
     });
-    setIncapacityAttachmentFile(null);
   }
 
   async function handleDeleteIncapacityReport(record: IncapacityReportRecord) {
@@ -2491,7 +2436,6 @@ function App() {
     try {
       const syncResult = await syncIncapacityAttendance({ ...record, status: "cancelled" }, record);
       await deleteIncapacityReport(record.id);
-      await deleteIncapacityAttachment(record.attachmentPath).catch(() => undefined);
       await saveAuditLog("İş göremezlik raporu silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
       await refreshHrRecords();
       if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
@@ -3424,7 +3368,7 @@ function App() {
 
   function getIncapacityExportRows() {
     return [
-      ["Rapor Numarası", "Rapor Türü", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "SGK Bildirimi", "Bildirim Tarihi", "Son Tarih", "Dosya", "Not"],
+      ["Rapor Numarası", "Rapor Türü", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "SGK Bildirimi", "Bildirim Tarihi", "Son Tarih", "Not"],
       ...incapacityRowsForMonth.map((record) => {
         const member = staffById.get(record.staffId);
         return [
@@ -3441,7 +3385,6 @@ function App() {
           record.sgkNotified ? "Yapıldı" : "Bekliyor",
           record.sgkNotificationDate ?? "",
           record.notificationDeadline ?? "",
-          record.attachmentName ?? "",
           record.notes,
         ];
       }),
@@ -4386,19 +4329,6 @@ function App() {
                     <span>Son tarih hatırlatması</span>
                   </label>
                   <label>
-                    Rapor Dosyası
-                    <input type="file" accept="application/pdf,image/*" onChange={(event) => setIncapacityAttachmentFile(event.target.files?.[0] ?? null)} />
-                    {(incapacityAttachmentFile || incapacityForm.attachmentName) && (
-                      <small>{incapacityAttachmentFile?.name ?? incapacityForm.attachmentName}</small>
-                    )}
-                  </label>
-                  {incapacityForm.attachmentUrl && (
-                    <a className="secondary-action" href={incapacityForm.attachmentUrl} target="_blank" rel="noreferrer">
-                      <FileDown size={18} aria-hidden="true" />
-                      Mevcut Dosyayı Aç
-                    </a>
-                  )}
-                  <label>
                     Not
                     <textarea value={incapacityForm.notes} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
                   </label>
@@ -4463,7 +4393,6 @@ function App() {
                         <th>Neden</th>
                         <th>Durum</th>
                         <th>SGK</th>
-                        <th>Dosya</th>
                         <th>Not</th>
                         <th aria-label="İşlem" />
                       </tr>
@@ -4485,13 +4414,6 @@ function App() {
                             <span className={`status-pill ${record.sgkNotified ? "status-present" : "status-empty"}`}>
                               {record.sgkNotified ? "Bildirildi" : record.notificationDeadline || "Bekliyor"}
                             </span>
-                          </td>
-                          <td>
-                            {record.attachmentUrl ? (
-                              <a className="icon-button" href={record.attachmentUrl} target="_blank" rel="noreferrer" title={record.attachmentName || "Rapor dosyasını aç"}>
-                                <FileDown size={17} />
-                              </a>
-                            ) : "-"}
                           </td>
                           <td>{record.notes}</td>
                           <td>
