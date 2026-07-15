@@ -1042,8 +1042,15 @@ function App() {
       ),
     [staff, staffDepartment, staffSearch],
   );
-  const regularStaffList = useMemo(() => filteredStaff.filter((member) => !member.fixedStaff), [filteredStaff]);
-  const fixedStaffList = useMemo(() => filteredStaff.filter((member) => member.fixedStaff), [filteredStaff]);
+  const activeRegularStaffList = useMemo(
+    () => filteredStaff.filter((member) => member.active && !member.fixedStaff),
+    [filteredStaff],
+  );
+  const activeFixedStaffList = useMemo(
+    () => filteredStaff.filter((member) => member.active && member.fixedStaff),
+    [filteredStaff],
+  );
+  const inactiveStaffList = useMemo(() => filteredStaff.filter((member) => !member.active), [filteredStaff]);
   const bulkVisibleStaff = useMemo(
     () =>
       sortStaff(staff).filter(
@@ -2057,6 +2064,11 @@ function App() {
       await saveAuditLog(member.active ? "Personel pasife alındı" : "Personel aktife alındı", member.name);
       await refreshStaff();
       await refreshAuditLogs();
+      setMessage(
+        member.active
+          ? `${member.name} pasif personel bölümüne taşındı.`
+          : `${member.name} aktif personel bölümüne taşındı.`,
+      );
     } catch {
       setMessage("Personel durumu güncellenemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -5445,75 +5457,9 @@ function App() {
                   </select>
                 </label>
               </div>
-              <div className="panel-heading compact-heading">
-                <div>
-                  <h2>Personel Listesi</h2>
-                  <span>{regularStaffList.length} personel</span>
-                </div>
-              </div>
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>No</th>
-                      <th>Personel</th>
-                      <th>Departman</th>
-                      <th>İşe Giriş</th>
-                      <th>İşten Çıkış</th>
-                      <th>İmza Föyü</th>
-                      <th>Durum</th>
-                      <th aria-label="İşlem" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {regularStaffList.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="empty-cell">Bu filtrede normal personel bulunamadı.</td>
-                      </tr>
-                    )}
-                    {regularStaffList.map((member, index) => (
-                      <tr key={member.id} className={!member.active ? "is-muted" : ""}>
-                        <td className="number-cell">{index + 1}</td>
-                        <td>
-                          <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
-                            <strong>{member.name}</strong>
-                            <span>{member.title}</span>
-                          </button>
-                        </td>
-                        <td>{member.department}</td>
-                        <td>{member.startDate}</td>
-                        <td>{member.endDate}</td>
-                        <td>
-                          <span className={`status-pill ${member.showOnSignatureSheet === false ? "status-empty" : "status-present"}`}>
-                            {member.showOnSignatureSheet === false ? "Gizli" : "Göster"}
-                          </span>
-                        </td>
-                        <td>
-                          <div className="row-actions">
-                            <button className="icon-button" onClick={() => handleStartEditStaff(member)} title="Düzenle" aria-label={`${member.name} düzenle`}>
-                              <Edit3 size={17} />
-                            </button>
-                            <button className="status-toggle" onClick={() => void handleToggleStaff(member)}>
-                              {member.active ? "Aktif" : "Pasif"}
-                            </button>
-                          </div>
-                        </td>
-                        <td>
-                          <button
-                            className="icon-button danger"
-                            onClick={() => void handleDeleteStaff(member)}
-                            title="Personeli sil"
-                            aria-label={`${member.name} personelini sil`}
-                          >
-                            <Trash2 size={17} />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              {renderStaffTable(fixedStaffList, "Sabit Personel", "Bu filtrede sabit personel bulunamadı.")}
+              {renderStaffTable(activeRegularStaffList, "Aktif Personel", "Bu filtrede aktif personel bulunamadı.")}
+              {renderStaffTable(activeFixedStaffList, "Sabit Personel", "Bu filtrede aktif sabit personel bulunamadı.")}
+              {renderStaffTable(inactiveStaffList, "Pasif Personel", "Bu filtrede pasif personel bulunamadı.")}
             </section>
           </main>
         )}
