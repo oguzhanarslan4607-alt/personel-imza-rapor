@@ -46,6 +46,7 @@ import {
   deleteHolidayWorkRecord,
   deleteHourlyLeaveRecord,
   deleteIncapacityReport,
+  deleteIncapacityAttachment,
   deleteStaffMember,
   firebaseConfigured,
   firebaseProjectId,
@@ -55,10 +56,12 @@ import {
   loadAttendanceRange,
   loadAnnualLeaveRecords,
   loadDayLock,
+  loadDayLocks,
   loadDeletedAttendance,
   loadHolidayWorkRecords,
   loadHourlyLeaveRecords,
   loadIncapacityReports,
+  loadAppSettings,
   loadPrintArchives,
   loadStaff,
   makeAttendanceId,
@@ -71,17 +74,26 @@ import {
   saveHolidayWorkRecord,
   saveHourlyLeaveRecord,
   saveIncapacityReport,
+  saveAppSettings,
   savePrintArchive,
   saveStaffMember,
   saveStaffMembers,
+  restoreBackup,
   signInAdmin,
   signOutAdmin,
+  uploadIncapacityAttachment,
   type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
+import {
+  findIncapacityReportForDate,
+  getIncapacityReminderTone,
+  getIncapacityWorkDates,
+} from "./lib/incapacity";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
+  AppBackup,
   AppSettings,
   AttendanceRecord,
   AttendanceStatus,
@@ -93,6 +105,7 @@ import type {
   HolidayCompensationType,
   HolidayWorkRecord,
   IncapacityReportRecord,
+  IncapacityReportType,
   IncapacityStatus,
   LeaveStatus,
   PrintArchiveRecord,
@@ -224,6 +237,12 @@ const incapacityStatusLabels: Record<IncapacityStatus, string> = {
   active: "Aktif",
   completed: "Bitti",
   cancelled: "İptal",
+};
+const incapacityReportTypeLabels: Record<IncapacityReportType, string> = {
+  illness: "Hastalık",
+  work_accident: "İş kazası",
+  maternity: "Analık",
+  occupational_disease: "Meslek hastalığı",
 };
 const holidayCompensationLabels: Record<HolidayCompensationType, string> = {
   paid: "Ücret",
@@ -962,12 +981,23 @@ function App() {
     id: "",
     staffId: "",
     reportNumber: "",
+    reportType: "illness" as IncapacityReportType,
     startDate: todayIso(),
     endDate: todayIso(),
     reason: "",
     status: "active" as IncapacityStatus,
+    sgkNotified: false,
+    sgkNotificationDate: "",
+    notificationDeadline: "",
+    reminderEnabled: true,
+    attachmentName: "",
+    attachmentUrl: "",
+    attachmentPath: "",
+    attachmentContentType: "",
+    attachmentSize: 0,
     notes: "",
   });
+  const [incapacityAttachmentFile, setIncapacityAttachmentFile] = useState<File | null>(null);
   const [holidayWorkForm, setHolidayWorkForm] = useState({
     id: "",
     staffId: "",
@@ -1073,7 +1103,8 @@ function App() {
     return activeStaff.reduce(
       (stats, member) => {
         const draft = drafts[member.id] ?? emptyDraft;
-        const status = getDraftStatus(draft, settings);
+        const incapacityReport = findIncapacityReportForDate(incapacityReports, member.id, selectedDate);
+        const status = incapacityReport ? "excused" : getDraftStatus(draft, settings);
         if (status || draft.checkInTime || draft.lateReason.trim()) stats.processed += 1;
         if (status === "present") stats.present += 1;
         if (status === "late") stats.late += 1;
@@ -1083,7 +1114,7 @@ function App() {
       },
       { processed: 0, present: 0, late: 0, absent: 0, excused: 0 },
     );
-  }, [activeStaff, drafts, settings]);
+  }, [activeStaff, drafts, incapacityReports, selectedDate, settings]);
   const dailyEmptyCount = Math.max(0, activeStaff.length - dailyStats.processed);
 
   const reportStats = useMemo(() => {
@@ -1242,9 +1273,18 @@ function App() {
       total: incapacityRowsForMonth.length,
       active: incapacityRowsForMonth.filter((record) => record.status === "active").length,
       days: incapacityRowsForMonth.reduce((sum, record) => sum + record.dayCount, 0),
+      sgkPending: incapacityRowsForMonth.filter((record) => !record.sgkNotified && record.status !== "cancelled").length,
     }),
     [incapacityRowsForMonth],
   );
+  const incapacityReminders = useMemo(() => {
+    const today = todayIso();
+    const dueSoonDate = addDaysIso(today, 7);
+    return incapacityReports
+      .map((record) => ({ record, tone: getIncapacityReminderTone(record, today, dueSoonDate) }))
+      .filter(({ tone }) => tone === "overdue" || tone === "dueSoon")
+      .sort((a, b) => (a.record.notificationDeadline ?? "").localeCompare(b.record.notificationDeadline ?? ""));
+  }, [incapacityReports]);
   const holidayWorkRowsForMonth = useMemo(
     () => holidayWorkRecords.filter((record) => record.date.startsWith(holidayReportMonth)),
     [holidayReportMonth, holidayWorkRecords],
@@ -1458,6 +1498,8 @@ function App() {
     try {
       const nextStaff = await loadStaff();
       setStaff(nextStaff);
+    } catch {
+      setMessage("Personel verileri okunamadı. Mevcut liste korunuyor; bağlantınızı kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -1479,6 +1521,8 @@ function App() {
           ]),
         ),
       );
+    } catch {
+      setMessage("Günlük kayıtlar okunamadı. Mevcut ekran korunuyor; bağlantınızı kontrol edin.");
     } finally {
       setBusy(false);
     }
@@ -1489,7 +1533,7 @@ function App() {
       const records = await loadPrintArchives();
       setPrintArchives(records);
     } catch {
-      setPrintArchives([]);
+      setMessage("İmza föyü arşivi okunamadı; mevcut veriler korunuyor.");
     }
   }
 
@@ -1497,7 +1541,7 @@ function App() {
     try {
       setDayLock(await loadDayLock(date));
     } catch {
-      setDayLock(null);
+      setMessage("Gün kilidi durumu doğrulanamadı; mevcut kilit durumu korunuyor.");
     }
   }
 
@@ -1505,7 +1549,7 @@ function App() {
     try {
       setAuditLogs(await loadAuditLogs());
     } catch {
-      setAuditLogs([]);
+      setMessage("Değişiklik geçmişi okunamadı; mevcut kayıtlar korunuyor.");
     }
   }
 
@@ -1513,7 +1557,7 @@ function App() {
     try {
       setDeletedAttendance(await loadDeletedAttendance());
     } catch {
-      setDeletedAttendance([]);
+      setMessage("Silinen kayıtlar okunamadı; mevcut liste korunuyor.");
     }
   }
 
@@ -1530,10 +1574,7 @@ function App() {
       setHourlyLeaveRecords(hourlyLeave);
       setAnnualLeaveRecords(annualLeave);
     } catch {
-      setIncapacityReports([]);
-      setHolidayWorkRecords([]);
-      setHourlyLeaveRecords([]);
-      setAnnualLeaveRecords([]);
+      setMessage("İK kayıtları okunamadı. Mevcut veriler korunuyor; bağlantınızı kontrol edin.");
     }
   }
 
@@ -1589,6 +1630,20 @@ function App() {
   useEffect(() => {
     if (!canUseApp) return;
     void refreshStaff();
+  }, [canUseApp, admin?.uid]);
+
+  useEffect(() => {
+    if (!canUseApp) return;
+    void loadAppSettings()
+      .then((remoteSettings) => {
+        if (!remoteSettings) {
+          return saveAppSettings(settings);
+        }
+        const next = { ...defaultSettings, ...remoteSettings };
+        setSettings(next);
+        saveSettings(next);
+      })
+      .catch(() => setMessage("Firma ayarları Firestore'dan okunamadı; bu cihazdaki ayarlar kullanılıyor."));
   }, [canUseApp, admin?.uid]);
 
   useEffect(() => {
@@ -1673,6 +1728,9 @@ function App() {
     const next = { ...settings, ...patch };
     setSettings(next);
     saveSettings(next);
+    void saveAppSettings(next).catch(() => {
+      setMessage("Ayar bu cihazda kaydedildi ancak Firestore'a aktarılamadı.");
+    });
   }
 
   async function handleLogin(event: FormEvent) {
@@ -1729,6 +1787,7 @@ function App() {
     }
 
     const emptyMembers = activeStaff.filter((member) => {
+      if (findIncapacityReportForDate(incapacityReports, member.id, selectedDate)) return false;
       const draft = drafts[member.id] ?? emptyDraft;
       return !draft.status && !draft.checkInTime && !draft.lateReason.trim();
     });
@@ -1773,6 +1832,7 @@ function App() {
     try {
       const records = activeStaff
         .map((member) => {
+          if (findIncapacityReportForDate(incapacityReports, member.id, selectedDate)) return null;
           const draft = drafts[member.id] ?? emptyDraft;
           if (!draft.status && !draft.checkInTime && !draft.lateReason.trim()) return null;
 
@@ -1807,6 +1867,10 @@ function App() {
   }
 
   async function handleClearRecord(staffId: string) {
+    if (findIncapacityReportForDate(incapacityReports, staffId, selectedDate)) {
+      setMessage("Rapor süresindeki otomatik izin kaydı iş göremezlik ekranından yönetilir.");
+      return;
+    }
     if (selectedDayLocked) {
       setMessage("Bu gün kilitli. Kayıt değiştirmek için kilidi açın.");
       return;
@@ -2110,9 +2174,18 @@ function App() {
 
   async function handleBulkAttendance() {
     const selectedMembers = bulkSelectedIds.map((id) => staffById.get(id)).filter((member): member is StaffMember => Boolean(member));
+    const eligibleMembers = selectedMembers.filter(
+      (member) => member.active && !findIncapacityReportForDate(incapacityReports, member.id, selectedDate),
+    );
+    const skippedCount = selectedMembers.length - eligibleMembers.length;
 
     if (!selectedMembers.length) {
       setMessage("Toplu işlem için personel seçin.");
+      return;
+    }
+
+    if (!eligibleMembers.length) {
+      setMessage("Seçilen personeller pasif veya seçili tarihte raporlu olduğu için devam kaydı oluşturulmadı.");
       return;
     }
 
@@ -2127,7 +2200,7 @@ function App() {
     }
 
     const checkInTime = bulkStatus === "present" || bulkStatus === "late" ? bulkCheckInTime || settings.shiftStart : "";
-    const records = selectedMembers.map((member) => ({
+    const records = eligibleMembers.map((member) => ({
       id: makeAttendanceId(selectedDate, member.id),
       staffId: member.id,
       date: selectedDate,
@@ -2142,7 +2215,11 @@ function App() {
       await saveAuditLog("Toplu günlük işlem", `${selectedDate} - ${records.length} kayıt - ${statusLabels[bulkStatus]}`);
       await refreshAttendance(selectedDate);
       await refreshAuditLogs();
-      setMessage(`${records.length} personel için ${statusLabels[bulkStatus]} kaydı işlendi.`);
+      setMessage(
+        `${records.length} personel için ${statusLabels[bulkStatus]} kaydı işlendi.${
+          skippedCount ? ` ${skippedCount} pasif veya raporlu personel atlandı.` : ""
+        }`,
+      );
     } catch {
       setMessage("Toplu günlük işlem kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -2195,17 +2272,91 @@ function App() {
     }
   }
 
+  async function syncIncapacityAttendance(
+    record: IncapacityReportRecord,
+    previous?: IncapacityReportRecord,
+  ) {
+    const starts = [record.startDate, previous?.startDate].filter(Boolean) as string[];
+    const ends = [record.endDate, previous?.endDate].filter(Boolean) as string[];
+    const rangeStart = starts.sort()[0];
+    const sortedEnds = ends.sort();
+    const rangeEnd = sortedEnds[sortedEnds.length - 1];
+    if (!rangeStart || !rangeEnd) return { saved: 0, removed: 0, skipped: 0, locked: 0 };
+
+    const allDates = getIncapacityWorkDates(rangeStart, rangeEnd);
+    const existingRecords = await loadAttendanceRange(rangeStart, rangeEnd);
+    const locks = await Promise.all(allDates.map((date) => loadDayLock(date)));
+    const lockByDate = new Map(allDates.map((date, index) => [date, Boolean(locks[index]?.locked)]));
+    const existingByDate = new Map(
+      existingRecords.filter((item) => item.staffId === record.staffId).map((item) => [item.date, item]),
+    );
+    const targetDates = new Set(
+      record.status === "cancelled" ? [] : getIncapacityWorkDates(record.startDate, record.endDate),
+    );
+    let saved = 0;
+    let removed = 0;
+    let skipped = 0;
+    let locked = 0;
+
+    for (const date of allDates) {
+      const existing = existingByDate.get(date);
+      const isOwnAutomaticRecord = existing?.source === "incapacity" && existing.incapacityReportId === record.id;
+      const shouldExist = targetDates.has(date);
+      if (!shouldExist && !isOwnAutomaticRecord) continue;
+      if (lockByDate.get(date)) {
+        locked += 1;
+        continue;
+      }
+
+      if (!shouldExist && isOwnAutomaticRecord) {
+        await deleteAttendanceRecord(existing.id);
+        removed += 1;
+        continue;
+      }
+
+      if (existing && !isOwnAutomaticRecord) {
+        skipped += 1;
+        continue;
+      }
+
+      await saveAttendanceRecord({
+        id: makeAttendanceId(date, record.staffId),
+        staffId: record.staffId,
+        date,
+        checkInTime: "",
+        status: "excused",
+        lateReason: `İş göremezlik raporu${record.reportNumber ? ` (${record.reportNumber})` : ""}`,
+        source: "incapacity",
+        incapacityReportId: record.id,
+      });
+      saved += 1;
+    }
+
+    return { saved, removed, skipped, locked };
+  }
+
   function resetIncapacityForm() {
     setIncapacityForm({
       id: "",
       staffId: activeStaff[0]?.id ?? "",
       reportNumber: "",
+      reportType: "illness",
       startDate: todayIso(),
       endDate: todayIso(),
       reason: "",
       status: "active",
+      sgkNotified: false,
+      sgkNotificationDate: "",
+      notificationDeadline: "",
+      reminderEnabled: true,
+      attachmentName: "",
+      attachmentUrl: "",
+      attachmentPath: "",
+      attachmentContentType: "",
+      attachmentSize: 0,
       notes: "",
     });
+    setIncapacityAttachmentFile(null);
   }
 
   function handleIncapacityStartDateChange(date: string) {
@@ -2222,15 +2373,29 @@ function App() {
     }
 
     const existing = incapacityReports.find((record) => record.id === incapacityForm.id);
+    const reportId = incapacityForm.id || crypto.randomUUID();
+    let attachment = {
+      name: incapacityForm.attachmentName,
+      url: incapacityForm.attachmentUrl,
+      path: incapacityForm.attachmentPath,
+      contentType: incapacityForm.attachmentContentType,
+      size: incapacityForm.attachmentSize,
+    };
+
     const record: IncapacityReportRecord = {
-      id: incapacityForm.id || crypto.randomUUID(),
+      id: reportId,
       staffId,
       reportNumber: incapacityForm.reportNumber.trim(),
+      reportType: incapacityForm.reportType,
       startDate: incapacityForm.startDate,
       endDate: incapacityForm.endDate,
       dayCount: countCalendarDays(incapacityForm.startDate, incapacityForm.endDate),
       reason: incapacityForm.reason.trim(),
       status: incapacityForm.status,
+      sgkNotified: incapacityForm.sgkNotified,
+      sgkNotificationDate: incapacityForm.sgkNotified ? incapacityForm.sgkNotificationDate : "",
+      notificationDeadline: incapacityForm.notificationDeadline,
+      reminderEnabled: incapacityForm.reminderEnabled,
       notes: incapacityForm.notes.trim(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2241,14 +2406,54 @@ function App() {
       return;
     }
 
+    if (incapacityAttachmentFile && incapacityAttachmentFile.size > 10 * 1024 * 1024) {
+      setMessage("Rapor dosyası en fazla 10 MB olabilir.");
+      return;
+    }
+
+    if (
+      incapacityAttachmentFile &&
+      incapacityAttachmentFile.type !== "application/pdf" &&
+      !incapacityAttachmentFile.type.startsWith("image/")
+    ) {
+      setMessage("Rapor dosyası PDF veya görsel formatında olmalıdır.");
+      return;
+    }
+
     setBusy(true);
     try {
+      if (incapacityAttachmentFile) {
+        attachment = await uploadIncapacityAttachment(reportId, incapacityAttachmentFile);
+      }
+      Object.assign(record, {
+        attachmentName: attachment.name,
+        attachmentUrl: attachment.url,
+        attachmentPath: attachment.path,
+        attachmentContentType: attachment.contentType,
+        attachmentSize: attachment.size,
+      });
       await saveIncapacityReport(record);
+      let cleanupResult = { saved: 0, removed: 0, skipped: 0, locked: 0 };
+      if (existing && existing.staffId !== record.staffId) {
+        cleanupResult = await syncIncapacityAttendance({ ...existing, status: "cancelled" }, existing);
+      }
+      const syncResult = await syncIncapacityAttendance(
+        record,
+        existing?.staffId === record.staffId ? existing : undefined,
+      );
+      if (incapacityAttachmentFile && existing?.attachmentPath && existing.attachmentPath !== attachment.path) {
+        await deleteIncapacityAttachment(existing.attachmentPath).catch(() => undefined);
+      }
       await saveAuditLog(incapacityForm.id ? "İş göremezlik raporu güncellendi" : "İş göremezlik raporu eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
       await refreshHrRecords();
+      if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
       await refreshAuditLogs();
       resetIncapacityForm();
-      setMessage("İş göremezlik raporu kaydedildi.");
+      setMessage(
+        `İş göremezlik raporu kaydedildi; ${syncResult.saved} gün puantaja işlendi.${
+          syncResult.skipped ? ` ${syncResult.skipped} manuel kayıt korunarak atlandı.` : ""
+        }${syncResult.locked + cleanupResult.locked ? ` ${syncResult.locked + cleanupResult.locked} kilitli gün değiştirilemedi.` : ""}`,
+      );
     } catch {
       setMessage("İş göremezlik raporu kaydedilemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -2261,23 +2466,41 @@ function App() {
       id: record.id,
       staffId: record.staffId,
       reportNumber: record.reportNumber ?? "",
+      reportType: record.reportType ?? "illness",
       startDate: record.startDate,
       endDate: record.endDate,
       reason: record.reason,
       status: record.status,
+      sgkNotified: Boolean(record.sgkNotified),
+      sgkNotificationDate: record.sgkNotificationDate ?? "",
+      notificationDeadline: record.notificationDeadline ?? "",
+      reminderEnabled: record.reminderEnabled !== false,
+      attachmentName: record.attachmentName ?? "",
+      attachmentUrl: record.attachmentUrl ?? "",
+      attachmentPath: record.attachmentPath ?? "",
+      attachmentContentType: record.attachmentContentType ?? "",
+      attachmentSize: record.attachmentSize ?? 0,
       notes: record.notes,
     });
+    setIncapacityAttachmentFile(null);
   }
 
   async function handleDeleteIncapacityReport(record: IncapacityReportRecord) {
     if (!window.confirm("İş göremezlik raporu silinsin mi?")) return;
     setBusy(true);
     try {
+      const syncResult = await syncIncapacityAttendance({ ...record, status: "cancelled" }, record);
       await deleteIncapacityReport(record.id);
+      await deleteIncapacityAttachment(record.attachmentPath).catch(() => undefined);
       await saveAuditLog("İş göremezlik raporu silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
       await refreshHrRecords();
+      if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
       await refreshAuditLogs();
-      setMessage("İş göremezlik raporu silindi.");
+      setMessage(
+        `İş göremezlik raporu silindi; ${syncResult.removed} otomatik puantaj kaydı kaldırıldı.${
+          syncResult.locked ? ` ${syncResult.locked} kilitli gün değiştirilemedi.` : ""
+        }`,
+      );
     } catch {
       setMessage("İş göremezlik raporu silinemedi. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -3115,7 +3338,10 @@ function App() {
   async function handleDownloadBackup() {
     setBusy(true);
     try {
-      const allAttendance = await loadAttendanceRange("2000-01-01", "2100-12-31");
+      const [allAttendance, allDayLocks] = await Promise.all([
+        loadAttendanceRange("2000-01-01", "2100-12-31"),
+        loadDayLocks(),
+      ]);
       const backup = {
         exportedAt: new Date().toISOString(),
         firebaseProjectId,
@@ -3123,6 +3349,7 @@ function App() {
         staff,
         attendance: allAttendance,
         printArchives,
+        dayLocks: allDayLocks,
         deletedAttendance,
         incapacityReports,
         holidayWorkRecords,
@@ -3147,13 +3374,62 @@ function App() {
     }
   }
 
+  async function handleRestoreBackupFile(file: File | null) {
+    if (!file) return;
+
+    try {
+      const parsed = JSON.parse(await file.text()) as AppBackup;
+      const hasRestorableData = [
+        parsed.staff,
+        parsed.attendance,
+        parsed.incapacityReports,
+        parsed.holidayWorkRecords,
+        parsed.hourlyLeaveRecords,
+        parsed.annualLeaveRecords,
+      ].some(Array.isArray);
+      if (!hasRestorableData) {
+        setMessage("Seçilen dosya geçerli bir personel yedeği değil.");
+        return;
+      }
+
+      if (!window.confirm("Yedek mevcut verilerle birleştirilecek. Aynı kimlikteki kayıtlar yedekteki sürümle güncellensin mi?")) return;
+
+      setBusy(true);
+      await restoreBackup(parsed);
+      if (parsed.settings) {
+        const restoredSettings = { ...defaultSettings, ...parsed.settings };
+        setSettings(restoredSettings);
+        saveSettings(restoredSettings);
+        await saveAppSettings(restoredSettings);
+      }
+      await Promise.all([
+        refreshStaff(),
+        refreshAttendance(selectedDate),
+        refreshPrintArchives(),
+        refreshDayLock(selectedDate),
+        refreshAuditLogs(),
+        refreshDeletedAttendance(),
+        refreshHrRecords(),
+      ]);
+      await saveAuditLog("Yedek geri yüklendi", file.name);
+      await refreshAuditLogs();
+      setMessage("Yedek mevcut verilerle birleştirilerek geri yüklendi.");
+    } catch (error) {
+      console.warn("Backup restore failed.", error);
+      setMessage("Yedek geri yüklenemedi. Dosya biçimini, bağlantıyı ve yönetici yetkisini kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function getIncapacityExportRows() {
     return [
-      ["Rapor Numarası", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "Not"],
+      ["Rapor Numarası", "Rapor Türü", "Personel", "Departman", "Ünvan", "Başlangıç", "Bitiş", "Gün", "Rapor Nedeni", "Durum", "SGK Bildirimi", "Bildirim Tarihi", "Son Tarih", "Dosya", "Not"],
       ...incapacityRowsForMonth.map((record) => {
         const member = staffById.get(record.staffId);
         return [
           record.reportNumber?.trim() || "-",
+          incapacityReportTypeLabels[record.reportType ?? "illness"],
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
@@ -3162,6 +3438,10 @@ function App() {
           record.dayCount,
           record.reason,
           incapacityStatusLabels[record.status],
+          record.sgkNotified ? "Yapıldı" : "Bekliyor",
+          record.sgkNotificationDate ?? "",
+          record.notificationDeadline ?? "",
+          record.attachmentName ?? "",
           record.notes,
         ];
       }),
@@ -3626,8 +3906,10 @@ function App() {
                   <tbody>
                     {filteredDailyStaff.map((member, index) => {
                       const draft = drafts[member.id] ?? emptyDraft;
+                      const incapacityReport = findIncapacityReportForDate(incapacityReports, member.id, selectedDate);
                       const lateMinutes = getLateMinutes(draft.checkInTime, settings);
-                      const status = getDraftStatus(draft, settings);
+                      const status = incapacityReport ? "excused" : getDraftStatus(draft, settings);
+                      const rowDisabled = selectedDayLocked || Boolean(incapacityReport);
 
                       return (
                         <tr key={member.id} className={getStatusRowClass(status)}>
@@ -3636,13 +3918,16 @@ function App() {
                             <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
                               <strong>{member.name}</strong>
                               <span>{[member.department, member.title].filter(Boolean).join(" / ")}</span>
+                              {incapacityReport && (
+                                <small>Raporlu: {incapacityReportTypeLabels[incapacityReport.reportType ?? "illness"]}</small>
+                              )}
                             </button>
                           </td>
                           <td>
                             <input
                               type="time"
                               value={draft.checkInTime}
-                              disabled={selectedDayLocked}
+                              disabled={rowDisabled}
                               onChange={(event) => updateDraft(member.id, { checkInTime: event.target.value })}
                             />
                           </td>
@@ -3653,8 +3938,8 @@ function App() {
                           </td>
                           <td>
                             <select
-                              value={draft.status}
-                              disabled={selectedDayLocked}
+                              value={incapacityReport ? "excused" : draft.status}
+                              disabled={rowDisabled}
                               onChange={(event) =>
                                 updateDraft(member.id, { status: event.target.value as AttendanceStatus | "" })
                               }
@@ -3669,8 +3954,8 @@ function App() {
                           <td>
                             <input
                               type="text"
-                              value={draft.lateReason}
-                              disabled={selectedDayLocked}
+                              value={incapacityReport ? `İş göremezlik raporu${incapacityReport.reportNumber ? ` (${incapacityReport.reportNumber})` : ""}` : draft.lateReason}
+                              disabled={rowDisabled}
                               onChange={(event) => updateDraft(member.id, { lateReason: event.target.value })}
                               placeholder="Geç kalma / izin açıklaması"
                             />
@@ -3679,7 +3964,7 @@ function App() {
                             <button
                               className="icon-button danger"
                               onClick={() => void handleClearRecord(member.id)}
-                              disabled={selectedDayLocked}
+                              disabled={rowDisabled}
                               title="Kaydı temizle"
                               aria-label={`${member.name} kaydını temizle`}
                             >
@@ -4002,7 +4287,20 @@ function App() {
               <Metric label="Rapor" value={incapacityStats.total} />
               <Metric label="Aktif" value={incapacityStats.active} tone="amber" />
               <Metric label="Toplam Gün" value={incapacityStats.days} tone="blue" />
+              <Metric label="SGK Bekleyen" value={incapacityStats.sgkPending} tone="red" />
             </section>
+
+            {incapacityReminders.length > 0 && (
+              <section className="alert-row">
+                <div className="alert-card warning-alert">
+                  <TriangleAlert size={18} aria-hidden="true" />
+                  SGK bildirimi yaklaşan/geciken raporlar: {incapacityReminders
+                    .slice(0, 5)
+                    .map(({ record }) => `${staffById.get(record.staffId)?.name ?? "Personel"} (${record.notificationDeadline})`)
+                    .join(", ")}
+                </div>
+              </section>
+            )}
 
             <section className="workspace two-column">
               <section className="data-panel form-panel">
@@ -4024,6 +4322,14 @@ function App() {
                   <label>
                     Rapor Numarası
                     <input value={incapacityForm.reportNumber} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, reportNumber: event.target.value }))} placeholder="Rapor numarası" />
+                  </label>
+                  <label>
+                    Rapor Türü
+                    <select value={incapacityForm.reportType} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, reportType: event.target.value as IncapacityReportType }))}>
+                      {Object.entries(incapacityReportTypeLabels).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
                   </label>
                   <label>
                     Başlangıç
@@ -4049,6 +4355,49 @@ function App() {
                       <option value="cancelled">İptal</option>
                     </select>
                   </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={incapacityForm.sgkNotified}
+                      onChange={(event) => setIncapacityForm((previous) => ({
+                        ...previous,
+                        sgkNotified: event.target.checked,
+                        sgkNotificationDate: event.target.checked ? previous.sgkNotificationDate || todayIso() : "",
+                      }))}
+                    />
+                    <span>SGK bildirimi yapıldı</span>
+                  </label>
+                  {incapacityForm.sgkNotified && (
+                    <label>
+                      SGK Bildirim Tarihi
+                      <input type="date" value={incapacityForm.sgkNotificationDate} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, sgkNotificationDate: event.target.value }))} />
+                    </label>
+                  )}
+                  <label>
+                    Bildirim Son Tarihi
+                    <input type="date" value={incapacityForm.notificationDeadline} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, notificationDeadline: event.target.value }))} />
+                  </label>
+                  <label className="checkbox-field">
+                    <input
+                      type="checkbox"
+                      checked={incapacityForm.reminderEnabled}
+                      onChange={(event) => setIncapacityForm((previous) => ({ ...previous, reminderEnabled: event.target.checked }))}
+                    />
+                    <span>Son tarih hatırlatması</span>
+                  </label>
+                  <label>
+                    Rapor Dosyası
+                    <input type="file" accept="application/pdf,image/*" onChange={(event) => setIncapacityAttachmentFile(event.target.files?.[0] ?? null)} />
+                    {(incapacityAttachmentFile || incapacityForm.attachmentName) && (
+                      <small>{incapacityAttachmentFile?.name ?? incapacityForm.attachmentName}</small>
+                    )}
+                  </label>
+                  {incapacityForm.attachmentUrl && (
+                    <a className="secondary-action" href={incapacityForm.attachmentUrl} target="_blank" rel="noreferrer">
+                      <FileDown size={18} aria-hidden="true" />
+                      Mevcut Dosyayı Aç
+                    </a>
+                  )}
                   <label>
                     Not
                     <textarea value={incapacityForm.notes} onChange={(event) => setIncapacityForm((previous) => ({ ...previous, notes: event.target.value }))} rows={4} />
@@ -4108,10 +4457,13 @@ function App() {
                       <tr>
                         <th>Personel</th>
                         <th>Rapor No</th>
+                        <th>Tür</th>
                         <th>Tarih</th>
                         <th>Gün</th>
                         <th>Neden</th>
                         <th>Durum</th>
+                        <th>SGK</th>
+                        <th>Dosya</th>
                         <th>Not</th>
                         <th aria-label="İşlem" />
                       </tr>
@@ -4124,10 +4476,23 @@ function App() {
                             <span>{staffById.get(record.staffId)?.department ?? ""}</span>
                           </td>
                           <td>{record.reportNumber || "-"}</td>
+                          <td>{incapacityReportTypeLabels[record.reportType ?? "illness"]}</td>
                           <td>{record.startDate} - {record.endDate}</td>
                           <td>{record.dayCount}</td>
                           <td>{record.reason}</td>
                           <td><span className="status-toggle">{incapacityStatusLabels[record.status]}</span></td>
+                          <td>
+                            <span className={`status-pill ${record.sgkNotified ? "status-present" : "status-empty"}`}>
+                              {record.sgkNotified ? "Bildirildi" : record.notificationDeadline || "Bekliyor"}
+                            </span>
+                          </td>
+                          <td>
+                            {record.attachmentUrl ? (
+                              <a className="icon-button" href={record.attachmentUrl} target="_blank" rel="noreferrer" title={record.attachmentName || "Rapor dosyasını aç"}>
+                                <FileDown size={17} />
+                              </a>
+                            ) : "-"}
+                          </td>
                           <td>{record.notes}</td>
                           <td>
                             <div className="row-actions">
@@ -5521,6 +5886,20 @@ function App() {
                   <Database size={18} aria-hidden="true" />
                   Yedek İndir
                 </button>
+                <label className="secondary-action file-action">
+                  <ArchiveRestore size={18} aria-hidden="true" />
+                  Yedekten Geri Yükle
+                  <input
+                    type="file"
+                    accept="application/json,.json"
+                    hidden
+                    disabled={busy}
+                    onChange={(event) => {
+                      void handleRestoreBackupFile(event.target.files?.[0] ?? null);
+                      event.target.value = "";
+                    }}
+                  />
+                </label>
               </div>
             </section>
             <section className="data-panel">

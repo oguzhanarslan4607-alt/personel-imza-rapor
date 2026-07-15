@@ -7,6 +7,11 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
 
+    function isDayUnlocked(date) {
+      return !exists(/databases/$(database)/documents/dayLocks/$(date))
+        || get(/databases/$(database)/documents/dayLocks/$(date)).data.locked != true;
+    }
+
     match /admins/{adminId} {
       allow read: if request.auth != null && request.auth.uid == adminId;
       allow write: if false;
@@ -17,7 +22,9 @@ service cloud.firestore {
     }
 
     match /attendance/{attendanceId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin();
+      allow create, update: if isAdmin() && isDayUnlocked(request.resource.data.date);
+      allow delete: if isAdmin() && isDayUnlocked(resource.data.date);
     }
 
     match /deletedAttendance/{deletedAttendanceId} {
@@ -33,6 +40,11 @@ service cloud.firestore {
     }
 
     match /auditLogs/{logId} {
+      allow read, create: if isAdmin();
+      allow update, delete: if false;
+    }
+
+    match /settings/{settingsId} {
       allow read, write: if isAdmin();
     }
 
