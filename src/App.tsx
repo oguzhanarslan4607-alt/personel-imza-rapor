@@ -89,6 +89,7 @@ import {
   getIncapacityWorkDates,
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
+import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
@@ -659,6 +660,9 @@ function numberToTurkishText(value: number) {
 }
 
 function getLeaveDisplayStatus(record: AnnualLeaveRecord) {
+  if (record.leaveType === "unpaid" && record.status !== "cancelled") {
+    return leaveStatusLabels[getUnpaidLeaveAutomaticStatus(record.endDate, todayIso())];
+  }
   if (record.status === "planned" && record.endDate < todayIso()) return "Bitti";
   return leaveStatusLabels[record.status];
 }
@@ -1419,7 +1423,7 @@ function App() {
     [unpaidLeaveRecords, unpaidLeaveYear],
   );
   const unpaidLeaveSummaries = useMemo(() => {
-    const summary = new Map<string, { staff: StaffMember; used: number; planned: number; completed: number }>();
+    const summary = new Map<string, { staff: StaffMember; planned: number; completed: number; cancelled: number }>();
 
     unpaidLeaveRowsForYear.forEach((record) => {
       const member = staffById.get(record.staffId);
@@ -1429,16 +1433,15 @@ function App() {
         summary.get(record.staffId) ??
         {
           staff: member,
-          used: 0,
           planned: 0,
           completed: 0,
+          cancelled: 0,
         };
 
-      if (record.status !== "cancelled") {
-        if (record.status === "used") current.used += record.usedDays;
-        if (record.status === "completed") current.completed += record.usedDays;
-        if (record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti") current.planned += record.usedDays;
-      }
+      const automaticStatus = getUnpaidLeaveAutomaticStatus(record.endDate, todayIso());
+      if (record.status === "cancelled") current.cancelled += 1;
+      if (record.status !== "cancelled" && automaticStatus === "completed") current.completed += record.usedDays;
+      if (record.status !== "cancelled" && automaticStatus === "planned") current.planned += record.usedDays;
       summary.set(record.staffId, current);
     });
 
@@ -1449,15 +1452,13 @@ function App() {
   const unpaidLeaveStats = useMemo(
     () => ({
       records: unpaidLeaveRowsForYear.length,
-      used: unpaidLeaveRowsForYear
-        .filter((record) => record.status === "used")
-        .reduce((sum, record) => sum + record.usedDays, 0),
       planned: unpaidLeaveRowsForYear
-        .filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti")
+        .filter((record) => record.status !== "cancelled" && getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()) === "planned")
         .reduce((sum, record) => sum + record.usedDays, 0),
       completed: unpaidLeaveRowsForYear
-        .filter((record) => record.status === "completed")
+        .filter((record) => record.status !== "cancelled" && getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()) === "completed")
         .reduce((sum, record) => sum + record.usedDays, 0),
+      cancelled: unpaidLeaveRowsForYear.filter((record) => record.status === "cancelled").length,
     }),
     [unpaidLeaveRowsForYear],
   );
@@ -1471,9 +1472,8 @@ function App() {
   const unpaidLeaveReportStats = useMemo(
     () => ({
       records: unpaidLeaveRowsForMonth.length,
-      used: unpaidLeaveRowsForMonth.filter((record) => record.status === "used").reduce((sum, record) => sum + record.usedDays, 0),
-      planned: unpaidLeaveRowsForMonth.filter((record) => record.status === "planned" && getLeaveDisplayStatus(record) !== "Bitti").reduce((sum, record) => sum + record.usedDays, 0),
-      completed: unpaidLeaveRowsForMonth.filter((record) => record.status === "completed").reduce((sum, record) => sum + record.usedDays, 0),
+      planned: unpaidLeaveRowsForMonth.filter((record) => record.status !== "cancelled" && getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()) === "planned").reduce((sum, record) => sum + record.usedDays, 0),
+      completed: unpaidLeaveRowsForMonth.filter((record) => record.status !== "cancelled" && getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()) === "completed").reduce((sum, record) => sum + record.usedDays, 0),
       cancelled: unpaidLeaveRowsForMonth.filter((record) => record.status === "cancelled").length,
     }),
     [unpaidLeaveRowsForMonth],
@@ -1653,16 +1653,19 @@ function App() {
   useEffect(() => {
     if (!canUseApp) return;
 
-    const expiredUnpaidLeaves = annualLeaveRecords.filter(
-      (record) => record.leaveType === "unpaid" && record.status === "planned" && record.endDate < todayIso(),
+    const unpaidLeavesWithOutdatedStatus = annualLeaveRecords.filter(
+      (record) =>
+        record.leaveType === "unpaid" &&
+        record.status !== "cancelled" &&
+        record.status !== getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()),
     );
-    if (!expiredUnpaidLeaves.length) return;
+    if (!unpaidLeavesWithOutdatedStatus.length) return;
 
     void Promise.all(
-      expiredUnpaidLeaves.map((record) =>
+      unpaidLeavesWithOutdatedStatus.map((record) =>
         saveAnnualLeaveRecord({
           ...record,
-          status: "completed",
+          status: getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()),
           updatedAt: new Date().toISOString(),
         }),
       ),
@@ -2867,10 +2870,9 @@ function App() {
       endDate: unpaidLeaveForm.endDate,
       usedDays,
       entitlementDays: Number(unpaidLeaveForm.entitlementDays) || 0,
-      status:
-        unpaidLeaveForm.status === "planned" && unpaidLeaveForm.endDate < todayIso()
-          ? "completed"
-          : unpaidLeaveForm.status,
+      status: existing?.status === "cancelled"
+        ? "cancelled"
+        : getUnpaidLeaveAutomaticStatus(unpaidLeaveForm.endDate, todayIso()),
       notes: unpaidLeaveForm.notes.trim(),
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -2905,7 +2907,9 @@ function App() {
       startDate: record.startDate,
       endDate: record.endDate,
       entitlementDays: record.entitlementDays,
-      status: record.status,
+      status: record.status === "cancelled"
+        ? "cancelled"
+        : getUnpaidLeaveAutomaticStatus(record.endDate, todayIso()),
       notes: record.notes,
     });
   }
@@ -5064,9 +5068,9 @@ function App() {
           <main className="workspace">
             <section className="metric-row" aria-label="Ücretsiz izin özeti">
               <Metric label="Kayıt" value={unpaidLeaveStats.records} />
-              <Metric label="Kullanılan" value={unpaidLeaveStats.used} tone="amber" />
               <Metric label="Planlanan" value={unpaidLeaveStats.planned} tone="blue" />
               <Metric label="Bitti" value={unpaidLeaveStats.completed} tone="green" />
+              <Metric label="İptal" value={unpaidLeaveStats.cancelled} tone="amber" />
             </section>
 
             <section className="workspace two-column">
@@ -5110,17 +5114,18 @@ function App() {
                     <input type="date" value={unpaidLeaveForm.endDate} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, endDate: event.target.value }))} />
                   </label>
                   <label>
-                    Kullanılan Gün
+                    Toplam Gün
                     <input value={countLeaveDays(unpaidLeaveForm.startDate, unpaidLeaveForm.endDate)} readOnly />
                   </label>
                   <label>
                     Durum
-                    <select value={unpaidLeaveForm.status} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, status: event.target.value as LeaveStatus }))}>
-                      <option value="planned">Planlandı</option>
-                      <option value="used">Kullanıldı</option>
-                      <option value="completed">Bitti</option>
-                      <option value="cancelled">İptal</option>
-                    </select>
+                    <input
+                      value={unpaidLeaveForm.status === "cancelled"
+                        ? "İptal"
+                        : leaveStatusLabels[getUnpaidLeaveAutomaticStatus(unpaidLeaveForm.endDate, todayIso())]}
+                      readOnly
+                    />
+                    <small>Bitiş tarihi dünde kaldığında otomatik olarak Bitti olur.</small>
                   </label>
                   <label>
                     Not
@@ -5149,7 +5154,7 @@ function App() {
                 <div className="panel-heading">
                   <div>
                     <h2>{unpaidLeaveYear} Ücretsiz İzin Özeti</h2>
-                    <span>Ücretsiz izin türündeki kullanılan, planlanan ve biten günler hesaplanır</span>
+                    <span>Durum, bitiş tarihine göre Planlandı veya Bitti olarak otomatik hesaplanır</span>
                   </div>
                   <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
                     <RefreshCw size={18} aria-hidden="true" />
@@ -5161,9 +5166,9 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
-                        <th>Kullanılan</th>
                         <th>Planlanan</th>
                         <th>Bitti</th>
+                        <th>İptal</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -5173,9 +5178,9 @@ function App() {
                             <strong>{row.staff.name}</strong>
                             <span>{row.staff.department}</span>
                           </td>
-                          <td>{row.used}</td>
                           <td>{row.planned}</td>
                           <td>{row.completed}</td>
+                          <td>{row.cancelled}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -6586,7 +6591,7 @@ function GroupedLeavePrintReport({
 }: {
   groups: LeaveGroup[];
   staffById: Map<string, StaffMember>;
-  stats: { records: number; used: number; planned: number; completed: number; cancelled: number };
+  stats: { records: number; planned: number; completed: number; cancelled: number };
   reportMonth: string;
   title: string;
 }) {
@@ -6611,16 +6616,16 @@ function GroupedLeavePrintReport({
           <strong>{stats.records}</strong>
         </div>
         <div>
-          <span>Kullanılan</span>
-          <strong>{stats.used}</strong>
-        </div>
-        <div>
           <span>Planlanan</span>
           <strong>{stats.planned}</strong>
         </div>
         <div>
           <span>Bitti</span>
           <strong>{stats.completed}</strong>
+        </div>
+        <div>
+          <span>İptal</span>
+          <strong>{stats.cancelled}</strong>
         </div>
       </section>
       <table className="holiday-report-table">
