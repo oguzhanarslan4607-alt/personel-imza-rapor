@@ -88,6 +88,7 @@ import {
   getIncapacityReminderTone,
   getIncapacityWorkDates,
 } from "./lib/incapacity";
+import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
@@ -1461,15 +1462,12 @@ function App() {
     [unpaidLeaveRowsForYear],
   );
   const unpaidLeaveRowsForMonth = useMemo(() => {
-    const monthStart = `${unpaidLeaveReportMonth}-01`;
-    const monthEnd = getMonthEndIso(unpaidLeaveReportMonth);
     return unpaidLeaveRecords.filter(
       (record) =>
-        record.startDate <= monthEnd &&
-        record.endDate >= monthStart &&
+        shouldIncludeUnpaidLeaveInMonth(record, staffById.get(record.staffId), unpaidLeaveReportMonth) &&
         (unpaidLeaveReportStaffId === "all" || record.staffId === unpaidLeaveReportStaffId),
     );
-  }, [unpaidLeaveRecords, unpaidLeaveReportMonth, unpaidLeaveReportStaffId]);
+  }, [staffById, unpaidLeaveRecords, unpaidLeaveReportMonth, unpaidLeaveReportStaffId]);
   const unpaidLeaveReportStats = useMemo(
     () => ({
       records: unpaidLeaveRowsForMonth.length,
@@ -2116,7 +2114,11 @@ function App() {
   async function handleToggleStaff(member: StaffMember) {
     setBusy(true);
     try {
-      await saveStaffMember({ ...member, active: !member.active });
+      await saveStaffMember({
+        ...member,
+        active: !member.active,
+        endDate: member.active && !member.endDate ? todayIso() : member.endDate,
+      });
       await saveAuditLog(member.active ? "Personel pasife alındı" : "Personel aktife alındı", member.name);
       await refreshStaff();
       await refreshAuditLogs();
@@ -2252,7 +2254,13 @@ function App() {
 
     setBusy(true);
     try {
-      await saveStaffMembers(selectedMembers.map((member) => ({ ...member, active })));
+      await saveStaffMembers(
+        selectedMembers.map((member) => ({
+          ...member,
+          active,
+          endDate: !active && !member.endDate ? todayIso() : member.endDate,
+        })),
+      );
       await saveAuditLog(active ? "Toplu aktife alındı" : "Toplu pasife alındı", `${selectedMembers.length} personel`);
       await refreshStaff();
       await refreshAuditLogs();
@@ -3071,6 +3079,11 @@ function App() {
     const endDate = formatDateDotTr(unpaidLeaveForm.endDate);
     const returnDate = formatDateDotTr(getNextCalendarDateIso(unpaidLeaveForm.endDate));
     const startDayName = formatWeekdayTr(unpaidLeaveForm.startDate);
+    const departureLabel = getStaffDepartureLabel(staffMember);
+    const hasLeftEmployment = !staffMember.active;
+    const employmentResultText = hasLeftEmployment
+      ? `İlgili personel${staffMember.endDate ? ` ${formatDateDotTr(staffMember.endDate)} tarihinde` : ""} işten ayrılmıştır.`
+      : `İlgili Personel ${endDate} tarihinde izinden dönmüş ve ${returnDate} tarihinde görevine başlamıştır.`;
     const borderColor = "#111111";
     const cell = (text: string | number, bold = false) => ({ text: String(text ?? ""), bold, margin: [0, 2, 0, 2] });
     const centerCell = (text: string, bold = true) => ({ text, bold, alignment: "center", margin: [0, 1, 0, 1] });
@@ -3110,7 +3123,7 @@ function App() {
           margin: [0, 0, 0, 12],
         },
         {
-          text: `Yukarıda belirttiğim tarihler arasında kişisel işlerim nedeniyle toplam ${usedDays} (${numberToTurkishText(usedDays)}) gün\nücretsiz izin kullandım. ${returnDate} Tarihinde işbaşı yaptım. Gereğinin yapılmasını arz ederim.`,
+          text: `Yukarıda belirttiğim tarihler arasında kişisel işlerim nedeniyle toplam ${usedDays} (${numberToTurkishText(usedDays)}) gün\nücretsiz izin kullandım. ${hasLeftEmployment ? `${departureLabel}.` : `${returnDate} Tarihinde işbaşı yaptım.`} Gereğinin yapılmasını arz ederim.`,
           style: "requestText",
         },
         { text: "Saygılarımla,", alignment: "center", margin: [0, 18, 0, 0] },
@@ -3131,13 +3144,13 @@ function App() {
               [cell("ÜCRETSİZ İZİNE ÇIKIŞ TARİHİ"), cell(startDate)],
               [cell("ÜCRETSİZ İZNE ÇIKTIĞI GÜN"), cell(startDayName)],
               [cell("TOPLAM İZİN SÜRESİ"), cell(usedDays)],
-              [cell("İŞ BAŞI TARİHİ"), cell(returnDate)],
+              [cell(hasLeftEmployment ? "PERSONEL DURUMU" : "İŞ BAŞI TARİHİ"), cell(hasLeftEmployment ? departureLabel : returnDate)],
             ],
           },
           layout,
           margin: [0, 0, 0, 48],
         },
-        { text: `İlgili Personel ${endDate} tarihinde izinden dönmüş ve ${returnDate} tarihinde görevine başlamıştır.`, fontSize: 9.4, margin: [0, 0, 0, 20] },
+        { text: employmentResultText, fontSize: 9.4, bold: hasLeftEmployment, margin: [0, 0, 0, 20] },
         { text: "Onay", style: "boldCenter" },
       ],
     };
@@ -3503,11 +3516,12 @@ function App() {
 
   function getGroupedLeaveExportRows(groups: LeaveGroup[]) {
     return [
-      ["Personel", "Departman", "Ünvan", "Kayıt", "Yıl", "Tür", "Tarih Aralıkları", "Toplam Gün", "Durum Özeti", "Notlar"],
+      ["Personel", "Personel Durumu", "Departman", "Ünvan", "Kayıt", "Yıl", "Tür", "Tarih Aralıkları", "Toplam Gün", "Durum Özeti", "Notlar"],
       ...groups.map((group) => {
         const member = staffById.get(group.staffId);
         return [
           member?.name ?? "",
+          getStaffDepartureLabel(member),
           member?.department ?? "",
           member?.title ?? "",
           group.records.length,
@@ -5067,6 +5081,11 @@ function App() {
                   <label>
                     Personel
                     <select value={unpaidLeaveForm.staffId} onChange={(event) => setUnpaidLeaveForm((previous) => ({ ...previous, staffId: event.target.value }))}>
+                      {unpaidLeaveForm.staffId && !staffById.get(unpaidLeaveForm.staffId)?.active && (
+                        <option value={unpaidLeaveForm.staffId}>
+                          {staffById.get(unpaidLeaveForm.staffId)?.name} — {getStaffDepartureLabel(staffById.get(unpaidLeaveForm.staffId))}
+                        </option>
+                      )}
                       {activeStaff.map((member) => (
                         <option key={member.id} value={member.id}>{member.name}</option>
                       ))}
@@ -5184,6 +5203,11 @@ function App() {
                       {activeStaff.map((member) => (
                         <option key={member.id} value={member.id}>{member.name}</option>
                       ))}
+                      {staff
+                        .filter((member) => !member.active && unpaidLeaveRecords.some((record) => record.staffId === member.id))
+                        .map((member) => (
+                          <option key={member.id} value={member.id}>{member.name} — {getStaffDepartureLabel(member)}</option>
+                        ))}
                     </select>
                   </label>
                   <button className="secondary-action" onClick={handleExportUnpaidLeaveExcel} disabled={!unpaidLeaveRowsForMonth.length}>
@@ -5201,6 +5225,7 @@ function App() {
                   <thead>
                     <tr>
                       <th>Personel</th>
+                      <th>Personel Durumu</th>
                       <th>Kayıt</th>
                       <th>Yıl</th>
                       <th>Tür</th>
@@ -5217,6 +5242,11 @@ function App() {
                         <td>
                           <strong>{staffById.get(group.staffId)?.name ?? ""}</strong>
                           <span>{staffById.get(group.staffId)?.department ?? ""}</span>
+                        </td>
+                        <td>
+                          <span className={staffById.get(group.staffId)?.active ? "status-toggle" : "status-pill status-empty"}>
+                            {getStaffDepartureLabel(staffById.get(group.staffId))}
+                          </span>
                         </td>
                         <td>{group.records.length}</td>
                         <td>{group.year}</td>
@@ -6598,6 +6628,7 @@ function GroupedLeavePrintReport({
           <tr>
             <th>No</th>
             <th>Personel</th>
+            <th>Personel Durumu</th>
             <th>Departman</th>
             <th>Ünvan</th>
             <th>Kayıt</th>
@@ -6614,6 +6645,7 @@ function GroupedLeavePrintReport({
               <tr key={group.id}>
                 <td>{index + 1}</td>
                 <td>{member?.name ?? ""}</td>
+                <td>{getStaffDepartureLabel(member)}</td>
                 <td>{member?.department ?? ""}</td>
                 <td>{member?.title ?? ""}</td>
                 <td>{group.records.length}</td>
