@@ -151,17 +151,17 @@ describe("yıllık izin hak ediş tarihi", () => {
     )).toBe(14);
   });
 
-  it("beşinci hizmet yılı dahil 14 gün, altıncı yıldan sonra 20 gün verir", () => {
+  it("beş hizmet yılı dolduğunda yıllık izin hakkını 20 güne çıkarır", () => {
     expect(calculateAnnualEntitlementFromStartDate(
       "2022-08-15",
       2027,
       "2027-08-15",
-    )).toBe(14);
+    )).toBe(20);
     expect(calculateAnnualEntitlementFromStartDate(
       "2022-08-15",
-      2028,
-      "2028-08-15",
-    )).toBe(20);
+      2027,
+      "2027-08-14",
+    )).toBe(0);
   });
 
   it("işten çıkıştan sonraki hak edişi bakiyeye eklemez", () => {
