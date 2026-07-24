@@ -90,6 +90,7 @@ import {
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
+import { calculateProfileLeaveStats } from "./lib/profile";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
@@ -203,6 +204,14 @@ type HourlyLeaveGroup = {
   statusSummary: string;
   reasons: string[];
   notes: string[];
+};
+type ProfileHistoryEvent = {
+  id: string;
+  date: string;
+  sortDate: string;
+  category: string;
+  action: string;
+  detail: string;
 };
 type StaffInsight = {
   staff: StaffMember;
@@ -1175,7 +1184,7 @@ function App() {
 
   const selectedPersonSummary = reportStaffId === "all" ? null : reportSummaryRows.find((row) => row.staff.id === reportStaffId) ?? null;
   const warningRows = reportSummaryRows.filter((row) => row.absent > 0);
-  const profileStaff = (profileStaffId ? staffById.get(profileStaffId) : activeStaff[0]) ?? null;
+  const profileStaff = (profileStaffId ? staffById.get(profileStaffId) : staff[0]) ?? null;
   const profileRows = useMemo(
     () =>
       profileStaff
@@ -1195,6 +1204,136 @@ function App() {
       }, createEmptyCounts()),
     [profileRows, settings],
   );
+  const profileLeaveStats = useMemo(() => {
+    if (!profileStaff) {
+      return {
+        annualUsedTotal: 0,
+        annualEntitlement: 0,
+        annualPlannedCurrentYear: 0,
+        annualRemaining: 0,
+        unpaidUsedTotal: 0,
+        incapacityDays: 0,
+        hourlyLeaveMinutes: 0,
+        holidayWorkHours: 0,
+      };
+    }
+
+    const currentYear = getCurrentYear();
+    const leaveStats = calculateProfileLeaveStats(
+      profileStaff.id,
+      currentYear,
+      getAnnualEntitlementForStaff(profileStaff.id, currentYear, annualLeaveRecords, staffById),
+      annualLeaveRecords,
+      todayIso(),
+    );
+
+    return {
+      ...leaveStats,
+      incapacityDays: incapacityReports
+        .filter((record) => record.staffId === profileStaff.id && record.status !== "cancelled")
+        .reduce((sum, record) => sum + record.dayCount, 0),
+      hourlyLeaveMinutes: hourlyLeaveRecords
+        .filter((record) => record.staffId === profileStaff.id && record.status !== "cancelled")
+        .reduce((sum, record) => sum + getHourlyLeaveNetMinutes(record), 0),
+      holidayWorkHours: holidayWorkRecords
+        .filter((record) => record.staffId === profileStaff.id)
+        .reduce((sum, record) => sum + getHolidayWorkNetHours(record), 0),
+    };
+  }, [
+    annualLeaveRecords,
+    holidayWorkRecords,
+    hourlyLeaveRecords,
+    incapacityReports,
+    profileStaff,
+    staffById,
+  ]);
+  const profileHistoryEvents = useMemo<ProfileHistoryEvent[]>(() => {
+    if (!profileStaff) return [];
+
+    const events: ProfileHistoryEvent[] = [];
+    const addEvent = (event: ProfileHistoryEvent) => events.push(event);
+
+    annualLeaveRecords
+      .filter((record) => record.staffId === profileStaff.id)
+      .forEach((record) => {
+        addEvent({
+          id: `leave-${record.id}`,
+          date: record.startDate,
+          sortDate: record.updatedAt ?? record.createdAt ?? record.startDate,
+          category: annualLeaveTypeLabels[record.leaveType],
+          action: getLeaveDisplayStatus(record),
+          detail: `${record.startDate} - ${record.endDate} • ${record.usedDays} gün${record.notes ? ` • ${record.notes}` : ""}`,
+        });
+      });
+
+    hourlyLeaveRecords
+      .filter((record) => record.staffId === profileStaff.id)
+      .forEach((record) => {
+        addEvent({
+          id: `hourly-${record.id}`,
+          date: record.date,
+          sortDate: record.updatedAt ?? record.createdAt ?? record.date,
+          category: "Saatlik İzin",
+          action: hourlyLeaveStatusLabels[record.status],
+          detail: `${record.startTime} - ${record.endTime} • ${formatLeaveDuration(getHourlyLeaveNetMinutes(record))}${record.reason ? ` • ${record.reason}` : ""}`,
+        });
+      });
+
+    incapacityReports
+      .filter((record) => record.staffId === profileStaff.id)
+      .forEach((record) => {
+        addEvent({
+          id: `incapacity-${record.id}`,
+          date: record.startDate,
+          sortDate: record.updatedAt ?? record.createdAt ?? record.startDate,
+          category: "İş Göremezlik",
+          action: incapacityStatusLabels[record.status],
+          detail: `${incapacityReportTypeLabels[record.reportType ?? "illness"]} • ${record.startDate} - ${record.endDate} • ${record.dayCount} gün${record.reason ? ` • ${record.reason}` : ""}`,
+        });
+      });
+
+    holidayWorkRecords
+      .filter((record) => record.staffId === profileStaff.id)
+      .forEach((record) => {
+        addEvent({
+          id: `holiday-${record.id}`,
+          date: record.date,
+          sortDate: record.updatedAt ?? record.createdAt ?? record.date,
+          category: "Resmi Tatil",
+          action: holidayCompensationLabels[record.compensationType],
+          detail: `${record.holidayName} • ${record.startTime} - ${record.endTime} • ${getHolidayWorkNetHours(record)} saat${record.notes ? ` • ${record.notes}` : ""}`,
+        });
+      });
+
+    const normalizedName = profileStaff.name.trim().toLocaleLowerCase("tr-TR");
+    auditLogs
+      .filter(
+        (log) =>
+          log.staffId === profileStaff.id ||
+          (!log.staffId && normalizedName && log.detail.toLocaleLowerCase("tr-TR").includes(normalizedName)),
+      )
+      .forEach((log) => {
+        addEvent({
+          id: `audit-${log.id}`,
+          date: log.createdAt.slice(0, 10),
+          sortDate: log.createdAt,
+          category: "İşlem",
+          action: log.action,
+          detail: log.detail,
+        });
+      });
+
+    return events
+      .sort((a, b) => b.sortDate.localeCompare(a.sortDate) || b.date.localeCompare(a.date))
+      .slice(0, 100);
+  }, [
+    annualLeaveRecords,
+    auditLogs,
+    holidayWorkRecords,
+    hourlyLeaveRecords,
+    incapacityReports,
+    profileStaff,
+  ]);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
 
@@ -1537,7 +1676,7 @@ function App() {
 
   async function refreshAuditLogs() {
     try {
-      setAuditLogs(await loadAuditLogs());
+      setAuditLogs(await loadAuditLogs(500));
     } catch {
       setMessage("Değişiklik geçmişi okunamadı; mevcut kayıtlar korunuyor.");
     }
@@ -1675,10 +1814,10 @@ function App() {
   }, [annualLeaveRecords, canUseApp]);
 
   useEffect(() => {
-    if ((!profileStaffId || !staffById.has(profileStaffId)) && activeStaff.length) {
-      setProfileStaffId(activeStaff[0].id);
+    if ((!profileStaffId || !staffById.has(profileStaffId)) && staff.length) {
+      setProfileStaffId(staff[0].id);
     }
-  }, [activeStaff, profileStaffId, staffById]);
+  }, [profileStaffId, staff, staffById]);
 
   useEffect(() => {
     setBulkSelectedIds((previous) => previous.filter((id) => staffById.has(id)));
@@ -1894,7 +2033,7 @@ function App() {
       }
 
       await deleteAttendanceRecord(makeAttendanceId(selectedDate, staffId));
-      await saveAuditLog("Günlük kayıt temizlendi", `${selectedDate} - ${staffName}`);
+      await saveAuditLog("Günlük kayıt temizlendi", `${selectedDate} - ${staffName}`, staffId);
       setDrafts((previous) => ({ ...previous, [staffId]: emptyDraft }));
       await refreshAuditLogs();
       await refreshDeletedAttendance();
@@ -1911,7 +2050,7 @@ function App() {
     try {
       await saveAttendanceRecord(record.record);
       await deleteDeletedAttendance(record.id);
-      await saveAuditLog("Silinen kayıt geri yüklendi", `${record.record.date} - ${record.staffName}`);
+      await saveAuditLog("Silinen kayıt geri yüklendi", `${record.record.date} - ${record.staffName}`, record.record.staffId);
       await refreshDeletedAttendance();
       await refreshAuditLogs();
       if (record.record.date === selectedDate) await refreshAttendance(selectedDate);
@@ -1971,7 +2110,7 @@ function App() {
     setBusy(true);
     try {
       await saveStaffMember(member);
-      await saveAuditLog("Personel eklendi", member.name);
+      await saveAuditLog("Personel eklendi", member.name, member.id);
       setNewStaff({
         name: "",
         department: "",
@@ -2024,7 +2163,7 @@ function App() {
         startDate: editingStaff.startDate,
         endDate: editingStaff.endDate,
       });
-      await saveAuditLog("Personel güncellendi", editingStaff.name.trim());
+      await saveAuditLog("Personel güncellendi", editingStaff.name.trim(), editingStaff.id);
       setProfileStaffId(editingStaff.id);
       setEditingStaff(null);
       await refreshStaff();
@@ -2122,7 +2261,7 @@ function App() {
         active: !member.active,
         endDate: member.active && !member.endDate ? todayIso() : member.endDate,
       });
-      await saveAuditLog(member.active ? "Personel pasife alındı" : "Personel aktife alındı", member.name);
+      await saveAuditLog(member.active ? "Personel pasife alındı" : "Personel aktife alındı", member.name, member.id);
       await refreshStaff();
       await refreshAuditLogs();
       setMessage(
@@ -2143,7 +2282,7 @@ function App() {
     setBusy(true);
     try {
       await deleteStaffMember(member.id);
-      await saveAuditLog("Personel silindi", member.name);
+      await saveAuditLog("Personel silindi", member.name, member.id);
       await refreshStaff();
       await refreshAuditLogs();
     } catch {
@@ -2406,7 +2545,7 @@ function App() {
         record,
         existing?.staffId === record.staffId ? existing : undefined,
       );
-      await saveAuditLog(incapacityForm.id ? "İş göremezlik raporu güncellendi" : "İş göremezlik raporu eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog(incapacityForm.id ? "İş göremezlik raporu güncellendi" : "İş göremezlik raporu eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`, staffId);
       await refreshHrRecords();
       if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
       await refreshAuditLogs();
@@ -2447,7 +2586,7 @@ function App() {
     try {
       const syncResult = await syncIncapacityAttendance({ ...record, status: "cancelled" }, record);
       await deleteIncapacityReport(record.id);
-      await saveAuditLog("İş göremezlik raporu silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await saveAuditLog("İş göremezlik raporu silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`, record.staffId);
       await refreshHrRecords();
       if (record.startDate <= selectedDate && record.endDate >= selectedDate) await refreshAttendance(selectedDate);
       await refreshAuditLogs();
@@ -2531,7 +2670,7 @@ function App() {
     setBusy(true);
     try {
       await saveHolidayWorkRecord(record);
-      await saveAuditLog(holidayWorkForm.id ? "Resmi tatil çalışması güncellendi" : "Resmi tatil çalışması eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog(holidayWorkForm.id ? "Resmi tatil çalışması güncellendi" : "Resmi tatil çalışması eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`, staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       resetHolidayWorkForm();
@@ -2618,7 +2757,7 @@ function App() {
     setBusy(true);
     try {
       await deleteHolidayWorkRecord(record.id);
-      await saveAuditLog("Resmi tatil çalışması silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await saveAuditLog("Resmi tatil çalışması silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`, record.staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       setMessage("Resmi tatil çalışma kaydı silindi.");
@@ -2674,7 +2813,7 @@ function App() {
     setBusy(true);
     try {
       await saveHourlyLeaveRecord(record);
-      await saveAuditLog(hourlyLeaveForm.id ? "Saatlik izin kaydı güncellendi" : "Saatlik izin kaydı eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog(hourlyLeaveForm.id ? "Saatlik izin kaydı güncellendi" : "Saatlik izin kaydı eklendi", `${record.date} - ${staffById.get(staffId)?.name ?? staffId}`, staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       setHourlyLeaveReportMonth(record.date.slice(0, 7));
@@ -2705,7 +2844,7 @@ function App() {
     setBusy(true);
     try {
       await deleteHourlyLeaveRecord(record.id);
-      await saveAuditLog("Saatlik izin kaydı silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await saveAuditLog("Saatlik izin kaydı silindi", `${record.date} - ${staffById.get(record.staffId)?.name ?? record.staffId}`, record.staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       setMessage("Saatlik izin kaydı silindi.");
@@ -2809,7 +2948,7 @@ function App() {
     setBusy(true);
     try {
       await saveAnnualLeaveRecord(record);
-      await saveAuditLog(annualLeaveForm.id ? "Yıllık izin kaydı güncellendi" : "Yıllık izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog(annualLeaveForm.id ? "Yıllık izin kaydı güncellendi" : "Yıllık izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`, staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       resetAnnualLeaveForm();
@@ -2840,7 +2979,7 @@ function App() {
     setBusy(true);
     try {
       await deleteAnnualLeaveRecord(record.id);
-      await saveAuditLog("Yıllık izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await saveAuditLog("Yıllık izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`, record.staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       setMessage("Yıllık izin kaydı silindi.");
@@ -2886,7 +3025,7 @@ function App() {
     setBusy(true);
     try {
       await saveAnnualLeaveRecord(record);
-      await saveAuditLog(unpaidLeaveForm.id ? "Ücretsiz izin kaydı güncellendi" : "Ücretsiz izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`);
+      await saveAuditLog(unpaidLeaveForm.id ? "Ücretsiz izin kaydı güncellendi" : "Ücretsiz izin kaydı eklendi", `${record.startDate} - ${staffById.get(staffId)?.name ?? staffId}`, staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       resetUnpaidLeaveForm();
@@ -2919,7 +3058,7 @@ function App() {
     setBusy(true);
     try {
       await deleteAnnualLeaveRecord(record.id);
-      await saveAuditLog("Ücretsiz izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`);
+      await saveAuditLog("Ücretsiz izin kaydı silindi", `${record.startDate} - ${staffById.get(record.staffId)?.name ?? record.staffId}`, record.staffId);
       await refreshHrRecords();
       await refreshAuditLogs();
       setMessage("Ücretsiz izin kaydı silindi.");
@@ -5291,9 +5430,9 @@ function App() {
               <label className="wide-filter">
                 Personel
                 <select value={profileStaff?.id ?? ""} onChange={(event) => setProfileStaffId(event.target.value)}>
-                  {activeStaff.map((member, index) => (
+                  {staff.map((member, index) => (
                     <option key={member.id} value={member.id}>
-                      {index + 1}. {member.name}
+                      {index + 1}. {member.name}{member.active ? "" : " — İşten ayrıldı"}
                     </option>
                   ))}
                 </select>
@@ -5342,7 +5481,18 @@ function App() {
                   </div>
                 </section>
 
-                <section className="metric-row" aria-label="Personel profil özeti">
+                <section className="metric-row" aria-label="Personel izin özeti">
+                  <Metric label="Yıllık İzin Kullanıldı" value={profileLeaveStats.annualUsedTotal} tone="amber" />
+                  <Metric label={`${getCurrentYear()} Yıllık Hak`} value={profileLeaveStats.annualEntitlement} />
+                  <Metric label={`${getCurrentYear()} Planlanan`} value={profileLeaveStats.annualPlannedCurrentYear} tone="blue" />
+                  <Metric label="Kalan Yıllık İzin" value={profileLeaveStats.annualRemaining} tone="green" />
+                  <Metric label="Ücretsiz İzin Günü" value={profileLeaveStats.unpaidUsedTotal} tone="amber" />
+                  <Metric label="Raporlu Gün" value={profileLeaveStats.incapacityDays} tone="blue" />
+                  <Metric label="Saatlik İzin Günü" value={getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} />
+                  <Metric label="Resmi Tatil Saati" value={profileLeaveStats.holidayWorkHours} />
+                </section>
+
+                <section className="metric-row" aria-label="Seçili tarih devam özeti">
                   <Metric label="Kayıt" value={profileStats.total} />
                   <Metric label="Geldi" value={profileStats.present} tone="green" />
                   <Metric label="Geç" value={profileStats.late} tone="amber" />
@@ -5355,6 +5505,38 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <h2>Personel Geçmişi</h2>
+                      <span>İzin, rapor, resmi tatil ve personel işlemleri • son {profileHistoryEvents.length} kayıt</span>
+                    </div>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Tarih</th>
+                          <th>Tür</th>
+                          <th>İşlem / Durum</th>
+                          <th>Detay</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profileHistoryEvents.map((event) => (
+                          <tr key={event.id}>
+                            <td>{event.date}</td>
+                            <td><span className="status-toggle">{event.category}</span></td>
+                            <td><strong>{event.action}</strong></td>
+                            <td>{event.detail}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!profileHistoryEvents.length && <div className="empty-state">Bu personel için henüz İK işlemi bulunmuyor.</div>}
+                </section>
+
+                <section className="data-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Devam Geçmişi</h2>
                       <span>{reportStart} - {reportEnd}</span>
                     </div>
                   </div>
@@ -5386,7 +5568,7 @@ function App() {
                       </tbody>
                     </table>
                   </div>
-                  {!profileRows.length && <div className="empty-state">Bu tarih aralığında profil kaydı yok. Getir veya Bu Ay butonunu kullanın.</div>}
+                  {!profileRows.length && <div className="empty-state">Bu tarih aralığında devam kaydı yok. Getir veya Bu Ay butonunu kullanın.</div>}
                 </section>
               </>
             )}
@@ -5928,7 +6110,7 @@ function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {auditLogs.map((log) => (
+                    {auditLogs.slice(0, 80).map((log) => (
                       <tr key={log.id}>
                         <td>{new Date(log.createdAt).toLocaleString("tr-TR")}</td>
                         <td>{log.action}</td>

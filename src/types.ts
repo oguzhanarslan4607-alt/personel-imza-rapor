@@ -66,6 +66,7 @@ export type AuditLogRecord = {
   id: string;
   action: string;
   detail: string;
+  staffId?: string;
   createdAt: string;
   createdBy?: string | null;
 };
