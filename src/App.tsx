@@ -83,6 +83,7 @@ import {
   type AdminUser,
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
+import { buildAppNavigationSearch, parseAppNavigation } from "./lib/navigation";
 import {
   findIncapacityReportForDate,
   getIncapacityReminderTone,
@@ -251,6 +252,7 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "staff", label: "Personel", icon: Users },
   { key: "settings", label: "Ayarlar", icon: Settings },
 ];
+const tabKeys = tabs.map((tab) => tab.key);
 
 const statusLabels: Record<AttendanceStatus, string> = {
   present: "Geldi",
@@ -1091,7 +1093,9 @@ function getLoginErrorMessage(error: unknown) {
 }
 
 function App() {
-  const [activeTab, setActiveTab] = useState<TabKey>("daily");
+  const [activeTab, setActiveTab] = useState<TabKey>(
+    () => parseAppNavigation(window.location.search, tabKeys, "daily").tab,
+  );
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [admin, setAdmin] = useState<AdminUser | null>(null);
   const [authChecked, setAuthChecked] = useState(!firebaseConfigured);
@@ -1110,7 +1114,9 @@ function App() {
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
-  const [profileStaffId, setProfileStaffId] = useState("");
+  const [profileStaffId, setProfileStaffId] = useState(
+    () => parseAppNavigation(window.location.search, tabKeys, "daily").profileStaffId,
+  );
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkDepartment, setBulkDepartment] = useState("all");
   const [bulkSelectedIds, setBulkSelectedIds] = useState<string[]>([]);
@@ -2146,6 +2152,33 @@ function App() {
       setProfileStaffId(staff[0].id);
     }
   }, [profileStaffId, staff, staffById]);
+
+  useEffect(() => {
+    const nextSearch = buildAppNavigationSearch(
+      window.location.search,
+      activeTab,
+      profileStaffId,
+      "daily",
+    );
+    if (nextSearch === window.location.search) return;
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${window.location.pathname}${nextSearch}${window.location.hash}`,
+    );
+  }, [activeTab, profileStaffId]);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      const navigation = parseAppNavigation(window.location.search, tabKeys, "daily");
+      setActiveTab(navigation.tab);
+      setProfileStaffId(navigation.profileStaffId);
+    };
+
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     setBulkSelectedIds((previous) => previous.filter((id) => staffById.has(id)));
