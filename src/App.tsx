@@ -222,6 +222,7 @@ type ProfileHistoryEvent = {
 };
 type ProfileExportTable = {
   staffName: string;
+  staffDetails: Array<{ label: string; value: string }>;
   title: string;
   subtitle: string;
   columns: string[];
@@ -930,6 +931,20 @@ function downloadProfileSectionExcel(table: ProfileExportTable) {
   );
 }
 
+function getProfileExportStaffDetails(staffMember: StaffMember) {
+  return [
+    { label: "Departman", value: staffMember.department || "-" },
+    { label: "Ünvan", value: staffMember.title || "-" },
+    { label: "Durum", value: staffMember.active ? "Aktif" : "Pasif" },
+    { label: "İşe Giriş", value: staffMember.startDate || "-" },
+    { label: "İşten Çıkış", value: staffMember.endDate || "-" },
+    { label: "Vardiya", value: staffMember.shiftType || "-" },
+    { label: "T.C. Kimlik No", value: staffMember.nationalId || "-" },
+    { label: "Telefon", value: staffMember.phone || "-" },
+    { label: "SGK Kodu", value: staffMember.socialSecurityCode || "-" },
+  ];
+}
+
 function configurePdfMake(pdfMake: any, pdfFonts: any) {
   const virtualFileSystem = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
   if (typeof pdfMake.addVirtualFileSystem === "function") {
@@ -953,6 +968,22 @@ async function downloadProfileSectionPdf(table: ProfileExportTable) {
         row.map((cell) => ({ text: String(cell ?? ""), style: "tableCell" })),
       ),
     ];
+    const staffDetailRows = Array.from(
+      { length: Math.ceil(table.staffDetails.length / 3) },
+      (_, rowIndex) =>
+        Array.from({ length: 3 }, (_, columnIndex) => {
+          const detail = table.staffDetails[rowIndex * 3 + columnIndex];
+          return detail
+            ? {
+                stack: [
+                  { text: detail.label, style: "staffDetailLabel" },
+                  { text: detail.value, style: "staffDetailValue" },
+                ],
+                margin: [5, 4, 5, 4],
+              }
+            : { text: "" };
+        }),
+    );
 
     const docDefinition = {
       pageSize: "A4",
@@ -962,6 +993,20 @@ async function downloadProfileSectionPdf(table: ProfileExportTable) {
       content: [
         { text: table.staffName, style: "personName" },
         { text: table.title, style: "title" },
+        {
+          table: {
+            widths: ["*", "*", "*"],
+            body: staffDetailRows,
+          },
+          layout: {
+            fillColor: () => "#f7f9fc",
+            hLineColor: () => "#cbd5e1",
+            vLineColor: () => "#cbd5e1",
+            hLineWidth: () => 0.6,
+            vLineWidth: () => 0.6,
+          },
+          margin: [0, 8, 0, 10],
+        },
         { text: table.subtitle, style: "subtitle" },
         {
           table: {
@@ -984,6 +1029,8 @@ async function downloadProfileSectionPdf(table: ProfileExportTable) {
         personName: { fontSize: 15, bold: true, color: "#0f766e", margin: [0, 0, 0, 2] },
         title: { fontSize: 12, bold: true, margin: [0, 0, 0, 2] },
         subtitle: { fontSize: 8.5, color: "#526079", margin: [0, 0, 0, 14] },
+        staffDetailLabel: { fontSize: 7, bold: true, color: "#64748b" },
+        staffDetailValue: { fontSize: 8.5, bold: true, color: "#172033", margin: [0, 1, 0, 0] },
         tableHeader: { bold: true, fontSize: 8.5, color: "#172033" },
         tableCell: { fontSize: 8.2 },
       },
@@ -1307,6 +1354,7 @@ function App() {
       profileStaff
         ? {
             staffName: profileStaff.name,
+            staffDetails: getProfileExportStaffDetails(profileStaff),
             title: "Devam Geçmişi",
             subtitle: `${reportStart} - ${reportEnd}`,
             columns: ["Tarih", "Giriş", "Gecikme (Dk)", "Durum", "Açıklama"],
@@ -1389,6 +1437,7 @@ function App() {
       profileStaff
         ? {
             staffName: profileStaff.name,
+            staffDetails: getProfileExportStaffDetails(profileStaff),
             title: "Yıllık İzin Hakları ve Devirler",
             subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
             columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Hak Edecek", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
@@ -5829,7 +5878,7 @@ function App() {
                 </section>
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Yıllık İzin Geçmişi"
                   subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • devir dahil kalan ${profileLeaveStats.annualRemaining} gün`}
                   events={profileHistorySections.annual}
@@ -5837,7 +5886,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Ücretsiz İzin Geçmişi"
                   subtitle={`Bugüne kadar toplam ${profileLeaveStats.unpaidUsedTotal} gün`}
                   events={profileHistorySections.unpaid}
@@ -5845,7 +5894,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="İş Göremezlik Raporları"
                   subtitle={`Toplam ${profileLeaveStats.incapacityDays} raporlu gün`}
                   events={profileHistorySections.incapacity}
@@ -5853,7 +5902,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Saatlik İzin Geçmişi"
                   subtitle={`Toplam ${formatLeaveDuration(profileLeaveStats.hourlyLeaveMinutes)} • ${getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} gün karşılığı`}
                   events={profileHistorySections.hourly}
@@ -5861,7 +5910,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Resmi Tatil Çalışmaları"
                   subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
                   events={profileHistorySections.holiday}
@@ -5869,7 +5918,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Silinen Kayıtlar"
                   subtitle="İzin, rapor, resmi tatil ve devam kayıtlarındaki silme veya geri yükleme işlemleri"
                   events={profileHistorySections.deleted}
@@ -5877,7 +5926,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
-                  staffName={profileStaff.name}
+                  staff={profileStaff}
                   title="Diğer Personel İşlemleri"
                   subtitle="Yalnızca personel kartı ve personel verisi değişiklikleri"
                   events={profileHistorySections.other}
@@ -6843,20 +6892,21 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: "
 }
 
 function ProfileHistoryPanel({
-  staffName,
+  staff,
   title,
   subtitle,
   events,
   emptyText,
 }: {
-  staffName: string;
+  staff: StaffMember;
   title: string;
   subtitle: string;
   events: ProfileHistoryEvent[];
   emptyText: string;
 }) {
   const exportTable: ProfileExportTable = {
-    staffName,
+    staffName: staff.name,
+    staffDetails: getProfileExportStaffDetails(staff),
     title,
     subtitle,
     columns: ["Tarih", "İşlem / Durum", "Detay"],
