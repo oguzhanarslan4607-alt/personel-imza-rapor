@@ -213,6 +213,13 @@ type ProfileHistoryEvent = {
   action: string;
   detail: string;
 };
+type ProfileExportTable = {
+  staffName: string;
+  title: string;
+  subtitle: string;
+  columns: string[];
+  rows: Array<Array<string | number>>;
+};
 type StaffInsight = {
   staff: StaffMember;
   counts: StatusCounts;
@@ -906,6 +913,92 @@ function downloadExcelFile(filename: string, sections: Array<{ title: string; ro
   URL.revokeObjectURL(url);
 }
 
+function downloadProfileSectionExcel(table: ProfileExportTable) {
+  downloadExcelFile(
+    `${safeFilename(table.staffName)}-${safeFilename(table.title)}.xls`,
+    [
+      {
+        title: `${table.staffName} - ${table.title} - ${table.subtitle}`,
+        rows: [table.columns, ...table.rows],
+      },
+    ],
+  );
+}
+
+function configurePdfMake(pdfMake: any, pdfFonts: any) {
+  const virtualFileSystem = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
+  if (typeof pdfMake.addVirtualFileSystem === "function") {
+    pdfMake.addVirtualFileSystem(virtualFileSystem);
+  } else {
+    pdfMake.vfs = virtualFileSystem;
+  }
+}
+
+async function downloadProfileSectionPdf(table: ProfileExportTable) {
+  try {
+    const pdfMakeModule = await import("pdfmake/build/pdfmake");
+    const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+    const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+    const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
+    configurePdfMake(pdfMake, pdfFonts);
+
+    const body = [
+      table.columns.map((column) => ({ text: column, style: "tableHeader" })),
+      ...table.rows.map((row) =>
+        row.map((cell) => ({ text: String(cell ?? ""), style: "tableCell" })),
+      ),
+    ];
+
+    const docDefinition = {
+      pageSize: "A4",
+      pageOrientation: "landscape",
+      pageMargins: [28, 34, 28, 34],
+      defaultStyle: { font: "Roboto", fontSize: 8.5, color: "#172033" },
+      content: [
+        { text: table.staffName, style: "personName" },
+        { text: table.title, style: "title" },
+        { text: table.subtitle, style: "subtitle" },
+        {
+          table: {
+            headerRows: 1,
+            widths: table.columns.map((_, index) => index === table.columns.length - 1 ? "*" : "auto"),
+            body,
+          },
+          layout: {
+            fillColor: (rowIndex: number) => rowIndex === 0 ? "#e9eef5" : rowIndex % 2 === 0 ? "#f7f9fc" : null,
+            hLineColor: () => "#cbd5e1",
+            vLineColor: () => "#cbd5e1",
+            paddingLeft: () => 6,
+            paddingRight: () => 6,
+            paddingTop: () => 5,
+            paddingBottom: () => 5,
+          },
+        },
+      ],
+      styles: {
+        personName: { fontSize: 15, bold: true, color: "#0f766e", margin: [0, 0, 0, 2] },
+        title: { fontSize: 12, bold: true, margin: [0, 0, 0, 2] },
+        subtitle: { fontSize: 8.5, color: "#526079", margin: [0, 0, 0, 14] },
+        tableHeader: { bold: true, fontSize: 8.5, color: "#172033" },
+        tableCell: { fontSize: 8.2 },
+      },
+      footer: (currentPage: number, pageCount: number) => ({
+        text: `${new Date().toLocaleString("tr-TR")} - Sayfa ${currentPage} / ${pageCount}`,
+        alignment: "center",
+        fontSize: 7,
+        color: "#64748b",
+        margin: [0, 8, 0, 0],
+      }),
+    };
+
+    pdfMake
+      .createPdf(docDefinition)
+      .download(`${safeFilename(table.staffName)}-${safeFilename(table.title)}.pdf`);
+  } catch {
+    window.alert("PDF oluşturulamadı. Lütfen tekrar deneyin.");
+  }
+}
+
 function getLoginErrorMessage(error: unknown) {
   const code =
     typeof error === "object" && error && "code" in error ? String((error as { code?: unknown }).code) : "";
@@ -1203,6 +1296,25 @@ function App() {
         return current;
       }, createEmptyCounts()),
     [profileRows, settings],
+  );
+  const profileAttendanceExportTable = useMemo<ProfileExportTable | null>(
+    () =>
+      profileStaff
+        ? {
+            staffName: profileStaff.name,
+            title: "Devam Geçmişi",
+            subtitle: `${reportStart} - ${reportEnd}`,
+            columns: ["Tarih", "Giriş", "Gecikme (Dk)", "Durum", "Açıklama"],
+            rows: profileRows.map((record) => [
+              record.date,
+              record.checkInTime || "-",
+              getRecordLateMinutes(record, settings),
+              statusLabels[record.status],
+              record.lateReason,
+            ]),
+          }
+        : null,
+    [profileRows, profileStaff, reportEnd, reportStart, settings],
   );
   const profileLeaveStats = useMemo(() => {
     if (!profileStaff) {
@@ -3128,7 +3240,7 @@ function App() {
     const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
     const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
     const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
-    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
+    configurePdfMake(pdfMake, pdfFonts);
 
     const startDate = formatDateDotTr(form.startDate);
     const endDate = formatDateDotTr(form.endDate);
@@ -3256,7 +3368,7 @@ function App() {
     const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
     const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
     const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
-    pdfMake.vfs = pdfFonts.pdfMake?.vfs ?? pdfFonts.vfs ?? pdfFonts;
+    configurePdfMake(pdfMake, pdfFonts);
 
     const { firstName, lastName } = splitStaffName(staffMember.name);
     const startDate = formatDateDotTr(unpaidLeaveForm.startDate);
@@ -5543,6 +5655,7 @@ function App() {
                 </section>
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Yıllık İzin Geçmişi"
                   subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • kalan ${profileLeaveStats.annualRemaining} gün`}
                   events={profileHistorySections.annual}
@@ -5550,6 +5663,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Ücretsiz İzin Geçmişi"
                   subtitle={`Bugüne kadar toplam ${profileLeaveStats.unpaidUsedTotal} gün`}
                   events={profileHistorySections.unpaid}
@@ -5557,6 +5671,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="İş Göremezlik Raporları"
                   subtitle={`Toplam ${profileLeaveStats.incapacityDays} raporlu gün`}
                   events={profileHistorySections.incapacity}
@@ -5564,6 +5679,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Saatlik İzin Geçmişi"
                   subtitle={`Toplam ${formatLeaveDuration(profileLeaveStats.hourlyLeaveMinutes)} • ${getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} gün karşılığı`}
                   events={profileHistorySections.hourly}
@@ -5571,6 +5687,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Resmi Tatil Çalışmaları"
                   subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
                   events={profileHistorySections.holiday}
@@ -5578,6 +5695,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Silinen Kayıtlar"
                   subtitle="İzin, rapor, resmi tatil ve devam kayıtlarındaki silme veya geri yükleme işlemleri"
                   events={profileHistorySections.deleted}
@@ -5585,6 +5703,7 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  staffName={profileStaff.name}
                   title="Diğer Personel İşlemleri"
                   subtitle="Yalnızca personel kartı ve personel verisi değişiklikleri"
                   events={profileHistorySections.other}
@@ -5596,6 +5715,26 @@ function App() {
                     <div>
                       <h2>Devam Geçmişi</h2>
                       <span>{reportStart} - {reportEnd}</span>
+                    </div>
+                    <div className="button-row">
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => profileAttendanceExportTable && downloadProfileSectionExcel(profileAttendanceExportTable)}
+                        disabled={!profileRows.length}
+                      >
+                        <FileSpreadsheet size={18} aria-hidden="true" />
+                        Excel
+                      </button>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => profileAttendanceExportTable && void downloadProfileSectionPdf(profileAttendanceExportTable)}
+                        disabled={!profileRows.length}
+                      >
+                        <FileDown size={18} aria-hidden="true" />
+                        PDF
+                      </button>
                     </div>
                   </div>
                   <div className="table-scroll">
@@ -6530,22 +6669,52 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: "
 }
 
 function ProfileHistoryPanel({
+  staffName,
   title,
   subtitle,
   events,
   emptyText,
 }: {
+  staffName: string;
   title: string;
   subtitle: string;
   events: ProfileHistoryEvent[];
   emptyText: string;
 }) {
+  const exportTable: ProfileExportTable = {
+    staffName,
+    title,
+    subtitle,
+    columns: ["Tarih", "İşlem / Durum", "Detay"],
+    rows: events.map((event) => [event.date, event.action, event.detail]),
+  };
+
   return (
     <section className="data-panel">
       <div className="panel-heading">
         <div>
           <h2>{title}</h2>
           <span>{subtitle}</span>
+        </div>
+        <div className="button-row">
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => downloadProfileSectionExcel(exportTable)}
+            disabled={!events.length}
+          >
+            <FileSpreadsheet size={18} aria-hidden="true" />
+            Excel
+          </button>
+          <button
+            className="secondary-action"
+            type="button"
+            onClick={() => void downloadProfileSectionPdf(exportTable)}
+            disabled={!events.length}
+          >
+            <FileDown size={18} aria-hidden="true" />
+            PDF
+          </button>
         </div>
       </div>
       <div className="table-scroll">
