@@ -225,6 +225,7 @@ type ProfileExportTable = {
   staffDetails: Array<{ label: string; value: string }>;
   title: string;
   subtitle: string;
+  notice?: string;
   columns: string[];
   rows: Array<Array<string | number>>;
 };
@@ -1008,6 +1009,24 @@ async function downloadProfileSectionPdf(table: ProfileExportTable) {
           margin: [0, 8, 0, 10],
         },
         { text: table.subtitle, style: "subtitle" },
+        ...(table.notice
+          ? [
+              {
+                table: {
+                  widths: ["*"],
+                  body: [[{ text: table.notice, style: "pdfNotice", margin: [7, 5, 7, 5] }]],
+                },
+                layout: {
+                  fillColor: () => "#fff7ed",
+                  hLineColor: () => "#fdba74",
+                  vLineColor: () => "#fdba74",
+                  hLineWidth: () => 0.8,
+                  vLineWidth: () => 0.8,
+                },
+                margin: [0, -4, 0, 12],
+              },
+            ]
+          : []),
         {
           table: {
             headerRows: 1,
@@ -1031,6 +1050,7 @@ async function downloadProfileSectionPdf(table: ProfileExportTable) {
         subtitle: { fontSize: 8.5, color: "#526079", margin: [0, 0, 0, 14] },
         staffDetailLabel: { fontSize: 7, bold: true, color: "#64748b" },
         staffDetailValue: { fontSize: 8.5, bold: true, color: "#172033", margin: [0, 1, 0, 0] },
+        pdfNotice: { fontSize: 8.2, bold: true, color: "#9a3412" },
         tableHeader: { bold: true, fontSize: 8.5, color: "#172033" },
         tableCell: { fontSize: 8.2 },
       },
@@ -1428,6 +1448,7 @@ function App() {
           ...balance,
           entitlementDate,
           pendingEntitlement,
+          isEntryYear: Number(profileStaff?.startDate?.slice(0, 4)) === balance.year,
         };
       }),
     [profileAnnualLeaveBalances, profileStaff],
@@ -1440,12 +1461,15 @@ function App() {
             staffDetails: getProfileExportStaffDetails(profileStaff),
             title: "Yıllık İzin Hakları ve Devirler",
             subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
+            notice: "İşe giriş yılında yıllık izin hakkı oluşmaz. İlk hak, bir yıllık çalışma tamamlandığında kazanılır.",
             columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Hak Edecek", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
             rows: profileAnnualLeaveBalanceRows.map((balance) => [
               balance.year,
               balance.entitlementDate ?? "-",
               balance.entitlement,
-              balance.pendingEntitlement || "-",
+              balance.isEntryYear
+                ? "İşe giriş yılı - hak yok"
+                : balance.pendingEntitlement || "-",
               balance.carryIn,
               balance.used,
               balance.planned,
@@ -5832,6 +5856,13 @@ function App() {
                       </button>
                     </div>
                   </div>
+                  <div className="entitlement-note">
+                    <TriangleAlert size={18} aria-hidden="true" />
+                    <span>
+                      <strong>İşe giriş yılında yıllık izin hakkı oluşmaz.</strong>{" "}
+                      İlk hak, bir yıllık çalışma tamamlandığında kazanılır.
+                    </span>
+                  </div>
                   <div className="table-scroll">
                     <table className="data-table">
                       <thead>
@@ -5853,7 +5884,9 @@ function App() {
                             <td>{balance.entitlementDate ?? "-"}</td>
                             <td>{balance.entitlement} gün</td>
                             <td>
-                              {balance.pendingEntitlement > 0
+                              {balance.isEntryYear
+                                ? <strong>İşe giriş yılı - hak yok</strong>
+                                : balance.pendingEntitlement > 0
                                 ? <strong>{balance.pendingEntitlement} gün</strong>
                                 : "-"}
                             </td>
