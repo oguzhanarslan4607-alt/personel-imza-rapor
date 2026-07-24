@@ -1338,6 +1338,8 @@ function App() {
     const annual: ProfileHistoryEvent[] = [];
     const unpaid: ProfileHistoryEvent[] = [];
     const incapacity: ProfileHistoryEvent[] = [];
+    const hourly: ProfileHistoryEvent[] = [];
+    const holiday: ProfileHistoryEvent[] = [];
     const other: ProfileHistoryEvent[] = [];
 
     profileHistoryEvents.forEach((event) => {
@@ -1347,6 +1349,9 @@ function App() {
       const isAnnualAudit = isAudit && action.includes("yıllık izin");
       const isUnpaidAudit = isAudit && action.includes("ücretsiz izin");
       const isIncapacityAudit = isAudit && action.includes("iş göremezlik");
+      const isHourlyAudit = isAudit && action.includes("saatlik izin");
+      const isHolidayAudit = isAudit && action.includes("resmi tatil");
+      const isStaffDataAudit = isAudit && action.startsWith("personel ");
 
       if (event.category === "Yıllık izin" || (isAnnualAudit && isDeleted)) {
         annual.push(event);
@@ -1354,12 +1359,16 @@ function App() {
         unpaid.push(event);
       } else if (event.category === "İş Göremezlik" || (isIncapacityAudit && isDeleted)) {
         incapacity.push(event);
-      } else if (!isAnnualAudit && !isUnpaidAudit && !isIncapacityAudit) {
+      } else if (event.category === "Saatlik İzin" || (isHourlyAudit && isDeleted)) {
+        hourly.push(event);
+      } else if (event.category === "Resmi Tatil" || (isHolidayAudit && isDeleted)) {
+        holiday.push(event);
+      } else if (isStaffDataAudit) {
         other.push(event);
       }
     });
 
-    return { annual, unpaid, incapacity, other };
+    return { annual, unpaid, incapacity, hourly, holiday, other };
   }, [profileHistoryEvents]);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
@@ -5550,11 +5559,24 @@ function App() {
                 />
 
                 <ProfileHistoryPanel
+                  title="Saatlik İzin Geçmişi"
+                  subtitle={`Toplam ${formatLeaveDuration(profileLeaveStats.hourlyLeaveMinutes)} • ${getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} gün karşılığı`}
+                  events={profileHistorySections.hourly}
+                  emptyText="Bu personel için saatlik izin kaydı bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
+                  title="Resmi Tatil Çalışmaları"
+                  subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
+                  events={profileHistorySections.holiday}
+                  emptyText="Bu personel için resmi tatil çalışma kaydı bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
                   title="Diğer Personel İşlemleri"
-                  subtitle="Saatlik izin, resmi tatil ve personel kartı işlemleri"
+                  subtitle="Yalnızca personel kartı ve personel verisi değişiklikleri"
                   events={profileHistorySections.other}
-                  emptyText="Bu personel için başka işlem bulunmuyor."
-                  showCategory
+                  emptyText="Bu personelin kart bilgilerinde henüz değişiklik yapılmamış."
                 />
 
                 <section className="data-panel">
@@ -6500,13 +6522,11 @@ function ProfileHistoryPanel({
   subtitle,
   events,
   emptyText,
-  showCategory = false,
 }: {
   title: string;
   subtitle: string;
   events: ProfileHistoryEvent[];
   emptyText: string;
-  showCategory?: boolean;
 }) {
   return (
     <section className="data-panel">
@@ -6521,7 +6541,6 @@ function ProfileHistoryPanel({
           <thead>
             <tr>
               <th>Tarih</th>
-              {showCategory && <th>Tür</th>}
               <th>İşlem / Durum</th>
               <th>Detay</th>
             </tr>
@@ -6530,7 +6549,6 @@ function ProfileHistoryPanel({
             {events.map((event) => (
               <tr key={event.id}>
                 <td>{event.date}</td>
-                {showCategory && <td><span className="status-toggle">{event.category}</span></td>}
                 <td><strong>{event.action}</strong></td>
                 <td>{event.detail}</td>
               </tr>
