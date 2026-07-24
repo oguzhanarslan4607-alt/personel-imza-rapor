@@ -417,6 +417,23 @@ button {
   font-weight: 800;
 }
 
+.entitlement-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 10px 12px 0;
+  padding: 9px 11px;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+  color: #9a3412;
+  background: #fff7ed;
+  font-size: 12px;
+}
+
+.entitlement-note svg {
+  flex: 0 0 auto;
+}
+
 .compact-heading {
   margin: -14px -14px 2px;
   border-radius: 8px 8px 0 0;
@@ -1853,6 +1870,12 @@ button:disabled {
 
 :root[data-theme="dark"] .data-table td {
   background: #172033;
+}
+
+:root[data-theme="dark"] .entitlement-note {
+  color: #fed7aa;
+  border-color: #9a3412;
+  background: #431407;
 }
 
 :root[data-theme="dark"] .data-table tr.row-status-present td {
