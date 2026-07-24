@@ -1323,9 +1323,9 @@ function App() {
         });
       });
 
-    return events
-      .sort((a, b) => b.sortDate.localeCompare(a.sortDate) || b.date.localeCompare(a.date))
-      .slice(0, 100);
+    return events.sort(
+      (a, b) => b.sortDate.localeCompare(a.sortDate) || b.date.localeCompare(a.date),
+    );
   }, [
     annualLeaveRecords,
     auditLogs,
@@ -1334,6 +1334,33 @@ function App() {
     incapacityReports,
     profileStaff,
   ]);
+  const profileHistorySections = useMemo(() => {
+    const annual: ProfileHistoryEvent[] = [];
+    const unpaid: ProfileHistoryEvent[] = [];
+    const incapacity: ProfileHistoryEvent[] = [];
+    const other: ProfileHistoryEvent[] = [];
+
+    profileHistoryEvents.forEach((event) => {
+      const action = event.action.toLocaleLowerCase("tr-TR");
+      const isAudit = event.category === "İşlem";
+      const isDeleted = action.includes("silindi");
+      const isAnnualAudit = isAudit && action.includes("yıllık izin");
+      const isUnpaidAudit = isAudit && action.includes("ücretsiz izin");
+      const isIncapacityAudit = isAudit && action.includes("iş göremezlik");
+
+      if (event.category === "Yıllık izin" || (isAnnualAudit && isDeleted)) {
+        annual.push(event);
+      } else if (event.category === "Ücretsiz izin" || (isUnpaidAudit && isDeleted)) {
+        unpaid.push(event);
+      } else if (event.category === "İş Göremezlik" || (isIncapacityAudit && isDeleted)) {
+        incapacity.push(event);
+      } else if (!isAnnualAudit && !isUnpaidAudit && !isIncapacityAudit) {
+        other.push(event);
+      }
+    });
+
+    return { annual, unpaid, incapacity, other };
+  }, [profileHistoryEvents]);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
 
@@ -5501,37 +5528,34 @@ function App() {
                   <Metric label="Gecikme Dk" value={profileStats.lateMinutes} tone="amber" />
                 </section>
 
-                <section className="data-panel">
-                  <div className="panel-heading">
-                    <div>
-                      <h2>Personel Geçmişi</h2>
-                      <span>İzin, rapor, resmi tatil ve personel işlemleri • son {profileHistoryEvents.length} kayıt</span>
-                    </div>
-                  </div>
-                  <div className="table-scroll">
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>Tarih</th>
-                          <th>Tür</th>
-                          <th>İşlem / Durum</th>
-                          <th>Detay</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {profileHistoryEvents.map((event) => (
-                          <tr key={event.id}>
-                            <td>{event.date}</td>
-                            <td><span className="status-toggle">{event.category}</span></td>
-                            <td><strong>{event.action}</strong></td>
-                            <td>{event.detail}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  {!profileHistoryEvents.length && <div className="empty-state">Bu personel için henüz İK işlemi bulunmuyor.</div>}
-                </section>
+                <ProfileHistoryPanel
+                  title="Yıllık İzin Geçmişi"
+                  subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • kalan ${profileLeaveStats.annualRemaining} gün`}
+                  events={profileHistorySections.annual}
+                  emptyText="Bu personel için yıllık izin kaydı bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
+                  title="Ücretsiz İzin Geçmişi"
+                  subtitle={`Bugüne kadar toplam ${profileLeaveStats.unpaidUsedTotal} gün`}
+                  events={profileHistorySections.unpaid}
+                  emptyText="Bu personel için ücretsiz izin kaydı bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
+                  title="İş Göremezlik Raporları"
+                  subtitle={`Toplam ${profileLeaveStats.incapacityDays} raporlu gün`}
+                  events={profileHistorySections.incapacity}
+                  emptyText="Bu personel için iş göremezlik raporu bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
+                  title="Diğer Personel İşlemleri"
+                  subtitle="Saatlik izin, resmi tatil ve personel kartı işlemleri"
+                  events={profileHistorySections.other}
+                  emptyText="Bu personel için başka işlem bulunmuyor."
+                  showCategory
+                />
 
                 <section className="data-panel">
                   <div className="panel-heading">
@@ -6468,6 +6492,54 @@ function Metric({ label, value, tone }: { label: string; value: number; tone?: "
       <span>{label}</span>
       <strong>{value}</strong>
     </div>
+  );
+}
+
+function ProfileHistoryPanel({
+  title,
+  subtitle,
+  events,
+  emptyText,
+  showCategory = false,
+}: {
+  title: string;
+  subtitle: string;
+  events: ProfileHistoryEvent[];
+  emptyText: string;
+  showCategory?: boolean;
+}) {
+  return (
+    <section className="data-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>{title}</h2>
+          <span>{subtitle}</span>
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Tarih</th>
+              {showCategory && <th>Tür</th>}
+              <th>İşlem / Durum</th>
+              <th>Detay</th>
+            </tr>
+          </thead>
+          <tbody>
+            {events.map((event) => (
+              <tr key={event.id}>
+                <td>{event.date}</td>
+                {showCategory && <td><span className="status-toggle">{event.category}</span></td>}
+                <td><strong>{event.action}</strong></td>
+                <td>{event.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!events.length && <div className="empty-state">{emptyText}</div>}
+    </section>
   );
 }
 
