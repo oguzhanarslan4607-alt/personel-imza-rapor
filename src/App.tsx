@@ -5724,7 +5724,16 @@ function App() {
                   <div className="panel-heading">
                     <div>
                       <h2>Yıllık İzin Hakları ve Devirler</h2>
-                      <span>Her yılın hakkı ve kullanılmayan günlerin sonraki yıla aktarımı ayrı gösterilir.</span>
+                      <span>
+                        Her yılın hakkı ve kullanılmayan günlerin sonraki yıla aktarımı ayrı gösterilir.{" "}
+                        <a
+                          href="https://www.csgb.gov.tr/Media/trddpibj/y%C4%B1ll%C4%B1k-%C3%BCcretli-izin-y%C3%B6netmeli%C4%9Fi.pdf"
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          Mevzuat: Yıllık Ücretli İzin Yönetmeliği Madde 9
+                        </a>
+                      </span>
                     </div>
                     <div className="button-row">
                       <button
