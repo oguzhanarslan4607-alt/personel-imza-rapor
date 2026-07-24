@@ -558,11 +558,12 @@ export async function loadAuditLogs(limit = 80): Promise<AuditLogRecord[]> {
     .slice(0, limit);
 }
 
-export async function saveAuditLog(action: string, detail: string) {
+export async function saveAuditLog(action: string, detail: string, staffId?: string) {
   const record: AuditLogRecord = {
     id: `${Date.now()}_${crypto.randomUUID()}`,
     action,
     detail,
+    ...(staffId ? { staffId } : {}),
     createdAt: new Date().toISOString(),
     createdBy: currentUser?.email ?? null,
   };
