@@ -90,7 +90,7 @@ import {
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
-import { calculateProfileLeaveStats } from "./lib/profile";
+import { calculateProfileLeaveStats, sortProfileHistoryNewestFirst } from "./lib/profile";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
@@ -1437,9 +1437,7 @@ function App() {
         });
       });
 
-    return events.sort(
-      (a, b) => b.sortDate.localeCompare(a.sortDate) || b.date.localeCompare(a.date),
-    );
+    return sortProfileHistoryNewestFirst(events);
   }, [
     annualLeaveRecords,
     auditLogs,
