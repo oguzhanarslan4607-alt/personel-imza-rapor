@@ -36,7 +36,7 @@ export function calculateAnnualEntitlementFromStartDate(
 
   const completedServiceYears = year - startYear;
   if (completedServiceYears >= 15) return 26;
-  if (completedServiceYears >= 5) return 20;
+  if (completedServiceYears > 5) return 20;
   return 14;
 }
 
