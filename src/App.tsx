@@ -91,6 +91,7 @@ import {
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
 import {
+  calculateAnnualEntitlementForServiceYear,
   calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
@@ -1358,6 +1359,31 @@ function App() {
       todayIso(),
     );
   }, [annualLeaveRecords, profileStaff, staffById]);
+  const profileAnnualLeaveBalanceRows = useMemo(
+    () =>
+      profileAnnualLeaveBalances.map((balance) => {
+        const entitlementDate = getAnnualLeaveEntitlementDate(profileStaff?.startDate, balance.year);
+        const prospectiveEntitlement = calculateAnnualEntitlementForServiceYear(
+          profileStaff?.startDate,
+          balance.year,
+        );
+        const pendingEntitlement =
+          balance.entitlement === 0 &&
+          profileStaff?.active !== false &&
+          entitlementDate !== null &&
+          entitlementDate > todayIso() &&
+          (!profileStaff?.endDate || entitlementDate <= profileStaff.endDate)
+            ? prospectiveEntitlement
+            : 0;
+
+        return {
+          ...balance,
+          entitlementDate,
+          pendingEntitlement,
+        };
+      }),
+    [profileAnnualLeaveBalances, profileStaff],
+  );
   const profileAnnualLeaveExportTable = useMemo<ProfileExportTable | null>(
     () =>
       profileStaff
@@ -1365,11 +1391,12 @@ function App() {
             staffName: profileStaff.name,
             title: "Yıllık İzin Hakları ve Devirler",
             subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
-            columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
-            rows: profileAnnualLeaveBalances.map((balance) => [
+            columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Hak Edecek", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
+            rows: profileAnnualLeaveBalanceRows.map((balance) => [
               balance.year,
-              getAnnualLeaveEntitlementDate(profileStaff.startDate, balance.year) ?? "-",
+              balance.entitlementDate ?? "-",
               balance.entitlement,
+              balance.pendingEntitlement || "-",
               balance.carryIn,
               balance.used,
               balance.planned,
@@ -1377,7 +1404,7 @@ function App() {
             ]),
           }
         : null,
-    [profileAnnualLeaveBalances, profileStaff],
+    [profileAnnualLeaveBalanceRows, profileStaff],
   );
   const profileLeaveStats = useMemo(() => {
     if (!profileStaff) {
@@ -5763,6 +5790,7 @@ function App() {
                           <th>Yıl</th>
                           <th>Hak Ediş Tarihi</th>
                           <th>Yıllık Hak</th>
+                          <th>Hak Edecek</th>
                           <th>Önceki Yıldan Devir</th>
                           <th>Kullanılan</th>
                           <th>Planlanan</th>
@@ -5770,11 +5798,16 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {profileAnnualLeaveBalances.map((balance) => (
+                        {profileAnnualLeaveBalanceRows.map((balance) => (
                           <tr key={balance.year}>
                             <td><strong>{balance.year}</strong></td>
-                            <td>{getAnnualLeaveEntitlementDate(profileStaff.startDate, balance.year) ?? "-"}</td>
+                            <td>{balance.entitlementDate ?? "-"}</td>
                             <td>{balance.entitlement} gün</td>
+                            <td>
+                              {balance.pendingEntitlement > 0
+                                ? <strong>{balance.pendingEntitlement} gün</strong>
+                                : "-"}
+                            </td>
                             <td>{balance.carryIn} gün</td>
                             <td>{balance.used} gün</td>
                             <td>{balance.planned} gün</td>

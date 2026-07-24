@@ -19,6 +19,21 @@ export function getAnnualLeaveEntitlementDate(startDate: string | undefined, yea
   return `${year}-${String(month).padStart(2, "0")}-${String(entitlementDay).padStart(2, "0")}`;
 }
 
+export function calculateAnnualEntitlementForServiceYear(
+  startDate: string | undefined,
+  year: number,
+) {
+  if (!startDate) return 14;
+  const startYear = Number(startDate.slice(0, 4));
+  if (!startYear) return 14;
+
+  const completedServiceYears = year - startYear;
+  if (completedServiceYears <= 0) return 0;
+  if (completedServiceYears >= 15) return 26;
+  if (completedServiceYears > 5) return 20;
+  return 14;
+}
+
 export function calculateAnnualEntitlementFromStartDate(
   startDate: string | undefined,
   year: number,
@@ -34,10 +49,7 @@ export function calculateAnnualEntitlementFromStartDate(
     employmentEndDate && employmentEndDate < referenceDate ? employmentEndDate : referenceDate;
   if (entitlementDate > eligibilityCutoff) return 0;
 
-  const completedServiceYears = year - startYear;
-  if (completedServiceYears >= 15) return 26;
-  if (completedServiceYears > 5) return 20;
-  return 14;
+  return calculateAnnualEntitlementForServiceYear(startDate, year);
 }
 
 export function sortProfileHistoryNewestFirst<T extends { date: string; sortDate: string }>(items: T[]) {

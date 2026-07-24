@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { AnnualLeaveRecord } from "../types";
 import {
+  calculateAnnualEntitlementForServiceYear,
   calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
@@ -171,5 +172,17 @@ describe("yıllık izin hak ediş tarihi", () => {
       "2023-08-15",
       "2023-08-01",
     )).toBe(0);
+  });
+
+  it("yıldönümü gelmeden hak edilecek gün sayısını hesaplar", () => {
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2023-08-26",
+      2026,
+      "2026-07-24",
+    )).toBe(0);
+    expect(calculateAnnualEntitlementForServiceYear(
+      "2023-08-26",
+      2026,
+    )).toBe(14);
   });
 });
