@@ -90,7 +90,11 @@ import {
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
-import { calculateProfileLeaveStats, sortProfileHistoryNewestFirst } from "./lib/profile";
+import {
+  calculateAnnualLeaveYearBalances,
+  calculateProfileLeaveStats,
+  sortProfileHistoryNewestFirst,
+} from "./lib/profile";
 import type {
   AnnualLeaveRecord,
   AnnualLeaveType,
@@ -479,7 +483,7 @@ function calculateAnnualEntitlementFromStartDate(startDate: string | undefined, 
 
   const serviceYears = Math.max(0, year - start.getFullYear());
   if (serviceYears >= 15) return 26;
-  if (serviceYears >= 5) return 20;
+  if (serviceYears > 5) return 20;
   return 14;
 }
 
@@ -1316,6 +1320,64 @@ function App() {
         : null,
     [profileRows, profileStaff, reportEnd, reportStart, settings],
   );
+  const profileAnnualLeaveBalances = useMemo(() => {
+    if (!profileStaff) return [];
+
+    const currentYear = getCurrentYear();
+    const staffAnnualRecords = annualLeaveRecords.filter(
+      (record) => record.staffId === profileStaff.id && record.leaveType === "annual",
+    );
+    const startDateYear = Number(profileStaff.startDate?.slice(0, 4));
+    const recordYears = staffAnnualRecords.map((record) => record.year).filter((year) => year > 0);
+    const startYearCandidates = [
+      ...(Number.isFinite(startDateYear) && startDateYear > 0 ? [startDateYear] : []),
+      ...recordYears,
+    ];
+    const startYear = startYearCandidates.length ? Math.min(...startYearCandidates) : currentYear;
+    const endDateYear = Number(profileStaff.endDate?.slice(0, 4));
+    const endYear = !profileStaff.active && Number.isFinite(endDateYear) && endDateYear > 0
+      ? Math.max(startYear, Math.min(currentYear, endDateYear))
+      : currentYear;
+    const entitlements: Record<number, number> = {};
+
+    for (let year = startYear; year <= endYear; year += 1) {
+      entitlements[year] = getAnnualEntitlementForStaff(
+        profileStaff.id,
+        year,
+        annualLeaveRecords,
+        staffById,
+      );
+    }
+
+    return calculateAnnualLeaveYearBalances(
+      profileStaff.id,
+      startYear,
+      endYear,
+      entitlements,
+      annualLeaveRecords,
+      todayIso(),
+    );
+  }, [annualLeaveRecords, profileStaff, staffById]);
+  const profileAnnualLeaveExportTable = useMemo<ProfileExportTable | null>(
+    () =>
+      profileStaff
+        ? {
+            staffName: profileStaff.name,
+            title: "Yıllık İzin Hakları ve Devirler",
+            subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
+            columns: ["Yıl", "Yıllık Hak", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
+            rows: profileAnnualLeaveBalances.map((balance) => [
+              balance.year,
+              balance.entitlement,
+              balance.carryIn,
+              balance.used,
+              balance.planned,
+              balance.carryOut,
+            ]),
+          }
+        : null,
+    [profileAnnualLeaveBalances, profileStaff],
+  );
   const profileLeaveStats = useMemo(() => {
     if (!profileStaff) {
       return {
@@ -1323,6 +1385,7 @@ function App() {
         annualEntitlement: 0,
         annualPlannedCurrentYear: 0,
         annualRemaining: 0,
+        annualBalanceYear: getCurrentYear(),
         unpaidUsedTotal: 0,
         incapacityDays: 0,
         hourlyLeaveMinutes: 0,
@@ -1330,17 +1393,27 @@ function App() {
       };
     }
 
-    const currentYear = getCurrentYear();
+    const latestBalance = profileAnnualLeaveBalances[profileAnnualLeaveBalances.length - 1];
+    const balanceYear = latestBalance?.year ?? getCurrentYear();
     const leaveStats = calculateProfileLeaveStats(
       profileStaff.id,
-      currentYear,
-      getAnnualEntitlementForStaff(profileStaff.id, currentYear, annualLeaveRecords, staffById),
+      balanceYear,
+      latestBalance?.entitlement ?? getAnnualEntitlementForStaff(
+        profileStaff.id,
+        balanceYear,
+        annualLeaveRecords,
+        staffById,
+      ),
       annualLeaveRecords,
       todayIso(),
     );
 
     return {
       ...leaveStats,
+      annualEntitlement: latestBalance?.entitlement ?? leaveStats.annualEntitlement,
+      annualPlannedCurrentYear: latestBalance?.planned ?? leaveStats.annualPlannedCurrentYear,
+      annualRemaining: latestBalance?.carryOut ?? leaveStats.annualRemaining,
+      annualBalanceYear: balanceYear,
       incapacityDays: incapacityReports
         .filter((record) => record.staffId === profileStaff.id && record.status !== "cancelled")
         .reduce((sum, record) => sum + record.dayCount, 0),
@@ -1356,6 +1429,7 @@ function App() {
     holidayWorkRecords,
     hourlyLeaveRecords,
     incapacityReports,
+    profileAnnualLeaveBalances,
     profileStaff,
     staffById,
   ]);
@@ -5636,13 +5710,68 @@ function App() {
 
                 <section className="metric-row" aria-label="Personel izin özeti">
                   <Metric label="Yıllık İzin Kullanıldı" value={profileLeaveStats.annualUsedTotal} tone="amber" />
-                  <Metric label={`${getCurrentYear()} Yıllık Hak`} value={profileLeaveStats.annualEntitlement} />
-                  <Metric label={`${getCurrentYear()} Planlanan`} value={profileLeaveStats.annualPlannedCurrentYear} tone="blue" />
-                  <Metric label="Kalan Yıllık İzin" value={profileLeaveStats.annualRemaining} tone="green" />
+                  <Metric label={`${profileLeaveStats.annualBalanceYear} Yıllık Hak`} value={profileLeaveStats.annualEntitlement} />
+                  <Metric label={`${profileLeaveStats.annualBalanceYear} Planlanan`} value={profileLeaveStats.annualPlannedCurrentYear} tone="blue" />
+                  <Metric label="Devir Dahil Kalan İzin" value={profileLeaveStats.annualRemaining} tone="green" />
                   <Metric label="Ücretsiz İzin Günü" value={profileLeaveStats.unpaidUsedTotal} tone="amber" />
                   <Metric label="Raporlu Gün" value={profileLeaveStats.incapacityDays} tone="blue" />
                   <Metric label="Saatlik İzin Günü" value={getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} />
                   <Metric label="Resmi Tatil Saati" value={profileLeaveStats.holidayWorkHours} />
+                </section>
+
+                <section className="data-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>Yıllık İzin Hakları ve Devirler</h2>
+                      <span>Her yılın hakkı ve kullanılmayan günlerin sonraki yıla aktarımı ayrı gösterilir.</span>
+                    </div>
+                    <div className="button-row">
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => profileAnnualLeaveExportTable && downloadProfileSectionExcel(profileAnnualLeaveExportTable)}
+                        disabled={!profileAnnualLeaveBalances.length}
+                      >
+                        <FileSpreadsheet size={18} aria-hidden="true" />
+                        Excel
+                      </button>
+                      <button
+                        className="secondary-action"
+                        type="button"
+                        onClick={() => profileAnnualLeaveExportTable && void downloadProfileSectionPdf(profileAnnualLeaveExportTable)}
+                        disabled={!profileAnnualLeaveBalances.length}
+                      >
+                        <FileDown size={18} aria-hidden="true" />
+                        PDF
+                      </button>
+                    </div>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Yıl</th>
+                          <th>Yıllık Hak</th>
+                          <th>Önceki Yıldan Devir</th>
+                          <th>Kullanılan</th>
+                          <th>Planlanan</th>
+                          <th>Kalan / Sonraki Yıla Devir</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {profileAnnualLeaveBalances.map((balance) => (
+                          <tr key={balance.year}>
+                            <td><strong>{balance.year}</strong></td>
+                            <td>{balance.entitlement} gün</td>
+                            <td>{balance.carryIn} gün</td>
+                            <td>{balance.used} gün</td>
+                            <td>{balance.planned} gün</td>
+                            <td><strong>{balance.carryOut} gün</strong></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </section>
 
                 <section className="metric-row" aria-label="Seçili tarih devam özeti">
@@ -5657,7 +5786,7 @@ function App() {
                 <ProfileHistoryPanel
                   staffName={profileStaff.name}
                   title="Yıllık İzin Geçmişi"
-                  subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • kalan ${profileLeaveStats.annualRemaining} gün`}
+                  subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • devir dahil kalan ${profileLeaveStats.annualRemaining} gün`}
                   events={profileHistorySections.annual}
                   emptyText="Bu personel için yıllık izin kaydı bulunmuyor."
                 />

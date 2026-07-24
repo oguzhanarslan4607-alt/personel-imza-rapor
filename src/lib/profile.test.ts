@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AnnualLeaveRecord } from "../types";
-import { calculateProfileLeaveStats, sortProfileHistoryNewestFirst } from "./profile";
+import {
+  calculateAnnualLeaveYearBalances,
+  calculateProfileLeaveStats,
+  sortProfileHistoryNewestFirst,
+} from "./profile";
 
 function leave(overrides: Partial<AnnualLeaveRecord>): AnnualLeaveRecord {
   return {
@@ -68,5 +72,56 @@ describe("personel profil geçmişi sıralaması", () => {
     ]);
 
     expect(rows.map((row) => row.id)).toEqual(["newest", "middle", "older-updated-last"]);
+  });
+});
+
+describe("yıllık izin hak ve devir hesabı", () => {
+  it("kullanılmayan izinleri sonraki yıllara ayrı olarak devreder", () => {
+    const balances = calculateAnnualLeaveYearBalances(
+      "staff-1",
+      2024,
+      2026,
+      { 2024: 14, 2025: 14, 2026: 14 },
+      [
+        leave({ year: 2024, usedDays: 6, status: "used" }),
+        leave({ year: 2025, usedDays: 10, status: "used" }),
+        leave({ year: 2026, usedDays: 5, status: "used" }),
+      ],
+      "2026-07-24",
+    );
+
+    expect(balances).toEqual([
+      { year: 2024, entitlement: 14, carryIn: 0, used: 6, planned: 0, carryOut: 8 },
+      { year: 2025, entitlement: 14, carryIn: 8, used: 10, planned: 0, carryOut: 12 },
+      { year: 2026, entitlement: 14, carryIn: 12, used: 5, planned: 0, carryOut: 21 },
+    ]);
+  });
+
+  it("gelecek tarihli planlanan izni kullanılabilir bakiyeden ayırır", () => {
+    const balances = calculateAnnualLeaveYearBalances(
+      "staff-1",
+      2026,
+      2026,
+      { 2026: 14 },
+      [
+        leave({
+          year: 2026,
+          startDate: "2026-08-03",
+          endDate: "2026-08-07",
+          usedDays: 5,
+          status: "planned",
+        }),
+      ],
+      "2026-07-24",
+    );
+
+    expect(balances[0]).toEqual({
+      year: 2026,
+      entitlement: 14,
+      carryIn: 0,
+      used: 0,
+      planned: 5,
+      carryOut: 9,
+    });
   });
 });

@@ -1,5 +1,14 @@
 import type { AnnualLeaveRecord } from "../types";
 
+export type AnnualLeaveYearBalance = {
+  year: number;
+  entitlement: number;
+  carryIn: number;
+  used: number;
+  planned: number;
+  carryOut: number;
+};
+
 export function sortProfileHistoryNewestFirst<T extends { date: string; sortDate: string }>(items: T[]) {
   return [...items].sort(
     (a, b) => b.date.localeCompare(a.date) || b.sortDate.localeCompare(a.sortDate),
@@ -35,6 +44,52 @@ function getAnnualBreakdown(record: AnnualLeaveRecord, today: string) {
   const usedUntil = today < record.endDate ? today : record.endDate;
   const used = Math.min(record.usedDays, countLeaveDays(record.startDate, usedUntil));
   return { used, planned: Math.max(0, record.usedDays - used) };
+}
+
+export function calculateAnnualLeaveYearBalances(
+  staffId: string,
+  startYear: number,
+  endYear: number,
+  entitlements: Record<number, number>,
+  records: AnnualLeaveRecord[],
+  today: string,
+) {
+  if (endYear < startYear) return [] as AnnualLeaveYearBalance[];
+
+  const annualRecords = records.filter(
+    (record) => record.staffId === staffId && record.leaveType === "annual",
+  );
+  const balances: AnnualLeaveYearBalance[] = [];
+  let carryIn = 0;
+
+  for (let year = startYear; year <= endYear; year += 1) {
+    const breakdown = annualRecords
+      .filter((record) => record.year === year)
+      .reduce(
+        (total, record) => {
+          const current = getAnnualBreakdown(record, today);
+          return {
+            used: total.used + current.used,
+            planned: total.planned + current.planned,
+          };
+        },
+        { used: 0, planned: 0 },
+      );
+    const entitlement = Math.max(0, entitlements[year] ?? 14);
+    const carryOut = Math.max(0, carryIn + entitlement - breakdown.used - breakdown.planned);
+
+    balances.push({
+      year,
+      entitlement,
+      carryIn,
+      used: breakdown.used,
+      planned: breakdown.planned,
+      carryOut,
+    });
+    carryIn = carryOut;
+  }
+
+  return balances;
 }
 
 export function calculateProfileLeaveStats(
