@@ -1373,7 +1373,9 @@ function App() {
           date: record.startDate,
           sortDate: record.updatedAt ?? record.createdAt ?? record.startDate,
           category: annualLeaveTypeLabels[record.leaveType],
-          action: getLeaveDisplayStatus(record),
+          action: record.leaveType === "annual"
+            ? getAnnualLeaveDisplayStatus(record)
+            : getLeaveDisplayStatus(record),
           detail: `${record.startDate} - ${record.endDate} • ${record.usedDays} gün${record.notes ? ` • ${record.notes}` : ""}`,
         });
       });
