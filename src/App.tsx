@@ -1340,35 +1340,40 @@ function App() {
     const incapacity: ProfileHistoryEvent[] = [];
     const hourly: ProfileHistoryEvent[] = [];
     const holiday: ProfileHistoryEvent[] = [];
+    const deleted: ProfileHistoryEvent[] = [];
     const other: ProfileHistoryEvent[] = [];
 
     profileHistoryEvents.forEach((event) => {
       const action = event.action.toLocaleLowerCase("tr-TR");
       const isAudit = event.category === "İşlem";
-      const isDeleted = action.includes("silindi");
-      const isAnnualAudit = isAudit && action.includes("yıllık izin");
-      const isUnpaidAudit = isAudit && action.includes("ücretsiz izin");
-      const isIncapacityAudit = isAudit && action.includes("iş göremezlik");
-      const isHourlyAudit = isAudit && action.includes("saatlik izin");
-      const isHolidayAudit = isAudit && action.includes("resmi tatil");
+      const isDeletionAudit =
+        isAudit &&
+        (
+          action.includes("silindi") ||
+          action.includes("silinen") ||
+          action.includes("temizlendi") ||
+          action.includes("geri yüklendi")
+        );
       const isStaffDataAudit = isAudit && action.startsWith("personel ");
 
-      if (event.category === "Yıllık izin" || (isAnnualAudit && isDeleted)) {
+      if (isDeletionAudit) {
+        deleted.push(event);
+      } else if (event.category === "Yıllık izin") {
         annual.push(event);
-      } else if (event.category === "Ücretsiz izin" || (isUnpaidAudit && isDeleted)) {
+      } else if (event.category === "Ücretsiz izin") {
         unpaid.push(event);
-      } else if (event.category === "İş Göremezlik" || (isIncapacityAudit && isDeleted)) {
+      } else if (event.category === "İş Göremezlik") {
         incapacity.push(event);
-      } else if (event.category === "Saatlik İzin" || (isHourlyAudit && isDeleted)) {
+      } else if (event.category === "Saatlik İzin") {
         hourly.push(event);
-      } else if (event.category === "Resmi Tatil" || (isHolidayAudit && isDeleted)) {
+      } else if (event.category === "Resmi Tatil") {
         holiday.push(event);
       } else if (isStaffDataAudit) {
         other.push(event);
       }
     });
 
-    return { annual, unpaid, incapacity, hourly, holiday, other };
+    return { annual, unpaid, incapacity, hourly, holiday, deleted, other };
   }, [profileHistoryEvents]);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
@@ -5570,6 +5575,13 @@ function App() {
                   subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
                   events={profileHistorySections.holiday}
                   emptyText="Bu personel için resmi tatil çalışma kaydı bulunmuyor."
+                />
+
+                <ProfileHistoryPanel
+                  title="Silinen Kayıtlar"
+                  subtitle="İzin, rapor, resmi tatil ve devam kayıtlarındaki silme veya geri yükleme işlemleri"
+                  events={profileHistorySections.deleted}
+                  emptyText="Bu personel için silinen veya geri yüklenen kayıt bulunmuyor."
                 />
 
                 <ProfileHistoryPanel
