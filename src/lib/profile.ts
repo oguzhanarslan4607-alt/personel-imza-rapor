@@ -9,6 +9,37 @@ export type AnnualLeaveYearBalance = {
   carryOut: number;
 };
 
+export function getAnnualLeaveEntitlementDate(startDate: string | undefined, year: number) {
+  if (!startDate) return null;
+  const [startYear, month, day] = startDate.split("-").map(Number);
+  if (!startYear || !month || !day || year <= startYear) return null;
+
+  const lastDayOfMonth = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const entitlementDay = Math.min(day, lastDayOfMonth);
+  return `${year}-${String(month).padStart(2, "0")}-${String(entitlementDay).padStart(2, "0")}`;
+}
+
+export function calculateAnnualEntitlementFromStartDate(
+  startDate: string | undefined,
+  year: number,
+  referenceDate: string,
+  employmentEndDate?: string,
+) {
+  if (!startDate) return 14;
+  const startYear = Number(startDate.slice(0, 4));
+  const entitlementDate = getAnnualLeaveEntitlementDate(startDate, year);
+  if (!startYear || !entitlementDate) return 0;
+
+  const eligibilityCutoff =
+    employmentEndDate && employmentEndDate < referenceDate ? employmentEndDate : referenceDate;
+  if (entitlementDate > eligibilityCutoff) return 0;
+
+  const completedServiceYears = year - startYear;
+  if (completedServiceYears >= 15) return 26;
+  if (completedServiceYears > 5) return 20;
+  return 14;
+}
+
 export function sortProfileHistoryNewestFirst<T extends { date: string; sortDate: string }>(items: T[]) {
   return [...items].sort(
     (a, b) => b.date.localeCompare(a.date) || b.sortDate.localeCompare(a.sortDate),

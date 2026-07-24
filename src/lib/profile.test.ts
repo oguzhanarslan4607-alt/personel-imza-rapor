@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import type { AnnualLeaveRecord } from "../types";
 import {
+  calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
+  getAnnualLeaveEntitlementDate,
   sortProfileHistoryNewestFirst,
 } from "./profile";
 
@@ -123,5 +125,51 @@ describe("yıllık izin hak ve devir hesabı", () => {
       planned: 5,
       carryOut: 9,
     });
+  });
+});
+
+describe("yıllık izin hak ediş tarihi", () => {
+  it("işe giriş yılında izin hakkı oluşturmaz", () => {
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2022,
+      "2026-07-24",
+    )).toBe(0);
+  });
+
+  it("ilk 14 günlük hakkı işe girişten bir yıl sonraki aynı tarihte verir", () => {
+    expect(getAnnualLeaveEntitlementDate("2022-08-15", 2023)).toBe("2023-08-15");
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2023,
+      "2023-08-14",
+    )).toBe(0);
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2023,
+      "2023-08-15",
+    )).toBe(14);
+  });
+
+  it("beşinci hizmet yılı dahil 14 gün, altıncı yıldan sonra 20 gün verir", () => {
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2027,
+      "2027-08-15",
+    )).toBe(14);
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2028,
+      "2028-08-15",
+    )).toBe(20);
+  });
+
+  it("işten çıkıştan sonraki hak edişi bakiyeye eklemez", () => {
+    expect(calculateAnnualEntitlementFromStartDate(
+      "2022-08-15",
+      2023,
+      "2023-08-15",
+      "2023-08-01",
+    )).toBe(0);
   });
 });

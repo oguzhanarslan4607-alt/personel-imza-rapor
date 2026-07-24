@@ -91,8 +91,10 @@ import {
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
 import {
+  calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
+  getAnnualLeaveEntitlementDate,
   sortProfileHistoryNewestFirst,
 } from "./lib/profile";
 import type {
@@ -476,29 +478,27 @@ function countLeaveDays(startDate: string, endDate: string) {
   return count;
 }
 
-function calculateAnnualEntitlementFromStartDate(startDate: string | undefined, year: number) {
-  if (!startDate) return 14;
-  const start = parseIsoDate(startDate);
-  if (!start) return 14;
-
-  const serviceYears = Math.max(0, year - start.getFullYear());
-  if (serviceYears >= 15) return 26;
-  if (serviceYears > 5) return 20;
-  return 14;
-}
-
 function getAnnualEntitlementForStaff(
   staffId: string,
   year: number,
   records: AnnualLeaveRecord[],
   staffById: Map<string, StaffMember>,
 ) {
+  const staffMember = staffById.get(staffId);
+  const calculatedEntitlement = calculateAnnualEntitlementFromStartDate(
+    staffMember?.startDate,
+    year,
+    todayIso(),
+    staffMember?.endDate,
+  );
+  if (calculatedEntitlement <= 0) return 0;
+
   const existingEntitlements = records
     .filter((record) => record.staffId === staffId && record.year === year && record.leaveType === "annual" && record.entitlementDays > 0)
     .map((record) => record.entitlementDays);
 
   if (existingEntitlements.length) return Math.max(...existingEntitlements);
-  return calculateAnnualEntitlementFromStartDate(staffById.get(staffId)?.startDate, year);
+  return calculatedEntitlement;
 }
 
 function calculateWorkHours(startTime: string, endTime: string) {
@@ -1365,9 +1365,10 @@ function App() {
             staffName: profileStaff.name,
             title: "Yıllık İzin Hakları ve Devirler",
             subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
-            columns: ["Yıl", "Yıllık Hak", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
+            columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
             rows: profileAnnualLeaveBalances.map((balance) => [
               balance.year,
+              getAnnualLeaveEntitlementDate(profileStaff.startDate, balance.year) ?? "-",
               balance.entitlement,
               balance.carryIn,
               balance.used,
@@ -5751,6 +5752,7 @@ function App() {
                       <thead>
                         <tr>
                           <th>Yıl</th>
+                          <th>Hak Ediş Tarihi</th>
                           <th>Yıllık Hak</th>
                           <th>Önceki Yıldan Devir</th>
                           <th>Kullanılan</th>
@@ -5762,6 +5764,7 @@ function App() {
                         {profileAnnualLeaveBalances.map((balance) => (
                           <tr key={balance.year}>
                             <td><strong>{balance.year}</strong></td>
+                            <td>{getAnnualLeaveEntitlementDate(profileStaff.startDate, balance.year) ?? "-"}</td>
                             <td>{balance.entitlement} gün</td>
                             <td>{balance.carryIn} gün</td>
                             <td>{balance.used} gün</td>
