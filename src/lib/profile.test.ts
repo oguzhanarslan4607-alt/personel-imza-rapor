@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AnnualLeaveRecord } from "../types";
-import { calculateProfileLeaveStats } from "./profile";
+import { calculateProfileLeaveStats, sortProfileHistoryNewestFirst } from "./profile";
 
 function leave(overrides: Partial<AnnualLeaveRecord>): AnnualLeaveRecord {
   return {
@@ -56,5 +56,17 @@ describe("personel profil izin özeti", () => {
     ], "2026-07-24");
 
     expect(stats.unpaidUsedTotal).toBe(5);
+  });
+});
+
+describe("personel profil geçmişi sıralaması", () => {
+  it("güncellenme zamanından bağımsız olarak işlem tarihini en yeniden eskiye sıralar", () => {
+    const rows = sortProfileHistoryNewestFirst([
+      { id: "older-updated-last", date: "2024-11-01", sortDate: "2026-07-24T09:00:00.000Z" },
+      { id: "newest", date: "2026-07-23", sortDate: "2026-07-23T09:00:00.000Z" },
+      { id: "middle", date: "2025-12-08", sortDate: "2025-12-08T09:00:00.000Z" },
+    ]);
+
+    expect(rows.map((row) => row.id)).toEqual(["newest", "middle", "older-updated-last"]);
   });
 });

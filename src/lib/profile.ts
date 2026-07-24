@@ -1,5 +1,11 @@
 import type { AnnualLeaveRecord } from "../types";
 
+export function sortProfileHistoryNewestFirst<T extends { date: string; sortDate: string }>(items: T[]) {
+  return [...items].sort(
+    (a, b) => b.date.localeCompare(a.date) || b.sortDate.localeCompare(a.sortDate),
+  );
+}
+
 function parseIsoDate(value: string) {
   const [year, month, day] = value.split("-").map(Number);
   return new Date(Date.UTC(year, month - 1, day));
