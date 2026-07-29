@@ -84,6 +84,7 @@ import {
 } from "./lib/repository";
 import { defaultSettings, loadSettings, saveSettings } from "./lib/settings";
 import { buildAppNavigationSearch, parseAppNavigation } from "./lib/navigation";
+import { formatHourlyLeaveFormDuration, getHourlyLeaveEndDate } from "./lib/hourlyLeaveForm";
 import {
   findIncapacityReportForDate,
   getIncapacityReminderTone,
@@ -3216,6 +3217,165 @@ function App() {
     }
   }
 
+  async function handleDownloadHourlyLeaveFormPdf(
+    form: HourlyLeaveFormState | HourlyLeaveRecord = hourlyLeaveForm,
+  ) {
+    const staffId = form.staffId || activeStaff[0]?.id || "";
+    const staffMember = staffById.get(staffId);
+    if (!staffMember) {
+      setMessage("Mazeret izin formu için personel seçin.");
+      return;
+    }
+
+    const minutes = calculateHourlyLeaveMinutes(form.startTime, form.endTime);
+    if (!form.date || !minutes) {
+      setMessage("Mazeret izin formu için geçerli tarih ve saat aralığı girin.");
+      return;
+    }
+
+    try {
+      const pdfMakeModule = await import("pdfmake/build/pdfmake");
+      const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+      const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+      const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
+      configurePdfMake(pdfMake, pdfFonts);
+
+      const endDateIso = getHourlyLeaveEndDate(form.date, form.startTime, form.endTime);
+      const startDateTime = `${formatDateDotTr(form.date)} / ${form.startTime}`;
+      const endDateTime = `${formatDateDotTr(endDateIso)} / ${form.endTime}`;
+      const duration = formatHourlyLeaveFormDuration(minutes);
+      const borderColor = "#111111";
+      const layout = annualLeavePdfLayout(borderColor);
+      const innerMargin = [70, 0, 70, 12];
+      const headingCell = (text: string) => ({
+        text,
+        bold: true,
+        colSpan: 2,
+        margin: [0, 1, 0, 1],
+      });
+      const labelCell = (text: string, bold = false) => ({
+        text,
+        bold,
+        margin: [0, 1, 0, 1],
+      });
+      const valueCell = (text: string) => ({
+        text,
+        margin: [0, 1, 0, 1],
+      });
+
+      const docDefinition = {
+        pageSize: "A4",
+        pageMargins: [40, 30, 40, 36],
+        defaultStyle: { font: "Roboto", fontSize: 8.4, lineHeight: 1.08 },
+        styles: {
+          title: { fontSize: 10.5, bold: true, alignment: "center", margin: [0, 0, 0, 12] },
+          approvalHeading: { fontSize: 9, bold: true, alignment: "center" },
+          approvalText: { fontSize: 9.2 },
+          instruction: { fontSize: 9.3, bold: true, lineHeight: 1.15 },
+        },
+        content: [
+          { text: "MAZERET İZİN FORMU", style: "title" },
+          {
+            table: {
+              widths: [230, 142],
+              body: [
+                [headingCell("İzin İsteminde Bulunan Personelin"), ""],
+                [labelCell("Adı ve Soyadı"), valueCell(staffMember.name.toLocaleUpperCase("tr-TR"))],
+                [labelCell("Ünvanı"), valueCell((staffMember.title || "").toLocaleUpperCase("tr-TR"))],
+                [labelCell("Toplam İzin Süresi"), valueCell(duration)],
+              ],
+            },
+            layout,
+            margin: innerMargin,
+          },
+          {
+            table: {
+              widths: [230, 142],
+              heights: (rowIndex: number) => (rowIndex === 4 ? 24 : 14),
+              body: [
+                [headingCell("Kullanılacak İzin"), ""],
+                [labelCell("Başlangıç Tarihi/Saat"), valueCell(startDateTime)],
+                [labelCell("Bitiş Tarihi/Saati (Tatile Rastlasa Bile Bitiş Günü Yazılır)"), valueCell(endDateTime)],
+                [labelCell("Göreve Başlayacağı Tarih/Saat"), valueCell(endDateTime)],
+                [labelCell("Talep Eden Çalışanın İmzası", true), ""],
+              ],
+            },
+            layout,
+            margin: innerMargin,
+          },
+          {
+            table: {
+              widths: [372],
+              heights: (rowIndex: number) => (rowIndex === 0 ? 14 : 67),
+              body: [
+                [{ text: "PERSONELİN İZİN KULLANDIĞINA DAİR ONAYI", style: "approvalHeading", margin: [0, 1, 0, 1] }],
+                [
+                  {
+                    stack: [
+                      {
+                        text: [
+                          { text: `${startDateTime}  ve ` },
+                          { text: `${endDateTime} tarihinde iznimi kullandım. `, bold: true },
+                          { text: `${endDateTime} tarihinde görevime başladım.`, bold: true },
+                        ],
+                        style: "approvalText",
+                        margin: [4, 10, 4, 12],
+                      },
+                      {
+                        columns: [
+                          { text: "Ad Soyad:", bold: true, width: "50%" },
+                          { text: "İmza:", bold: true, width: "50%" },
+                        ],
+                        margin: [4, 0, 4, 0],
+                      },
+                    ],
+                  },
+                ],
+              ],
+            },
+            layout,
+            margin: innerMargin,
+          },
+          {
+            table: {
+              widths: [372],
+              heights: () => 86,
+              body: [
+                [
+                  {
+                    stack: [
+                      {
+                        text: `İlgili Personel ${endDateTime} tarihinde izinden dönmüş ve ${endDateTime} tarihinde görevine başlamıştır.`,
+                        margin: [0, 10, 0, 18],
+                      },
+                      { text: "ONAY", bold: true },
+                    ],
+                  },
+                ],
+              ],
+            },
+            layout,
+            margin: [70, 0, 70, 28],
+          },
+          {
+            ol: [
+              "Bu form iki nüsha olarak düzenlenir. Birinci nüshası ilgili birimde saklanır. İkinci nüshası ilgilinin izinden dönüşünden sonra gerekli kısımları doldurulup onaylanarak amirine teslim edilir.",
+              "Amiri bayi merkezine ya da muhasebeye ilgili ay içerisinde teslim eder.",
+              "Farklı tarihleri kapsayan her izin dönemi için ayrı ayrı izin formu kullanılması gerekir.",
+            ].map((text) => ({ text, style: "instruction", margin: [0, 0, 0, 24] })),
+            margin: [26, 0, 26, 0],
+          },
+        ],
+      };
+
+      pdfMake
+        .createPdf(docDefinition)
+        .download(`${safeFilename(staffMember.name || "personel")}-mazeret-izin-formu-${form.date}.pdf`);
+    } catch {
+      setMessage("Mazeret izin formu PDF'i oluşturulamadı. Lütfen tekrar deneyin.");
+    }
+  }
+
   function resetAnnualLeaveForm() {
     const staffId = activeStaff[0]?.id ?? "";
     const year = getCurrentYear();
@@ -5252,6 +5412,15 @@ function App() {
                       <Save size={18} aria-hidden="true" />
                       Kaydet
                     </button>
+                    <button
+                      className="secondary-action"
+                      type="button"
+                      onClick={() => void handleDownloadHourlyLeaveFormPdf()}
+                      disabled={busy}
+                    >
+                      <FileDown size={18} aria-hidden="true" />
+                      Mazeret Formu PDF
+                    </button>
                     {hourlyLeaveForm.id && (
                       <button className="secondary-action" type="button" onClick={resetHourlyLeaveForm}>
                         <X size={18} aria-hidden="true" />
@@ -5331,6 +5500,14 @@ function App() {
                                 {group.records.map((record) => (
                                   <span className="record-action-pair" key={record.id}>
                                     <small>{record.date} {record.startTime}</small>
+                                    <button
+                                      className="icon-button"
+                                      onClick={() => void handleDownloadHourlyLeaveFormPdf(record)}
+                                      title={`${record.date} mazeret izin formu`}
+                                      aria-label={`${record.date} mazeret izin formunu PDF indir`}
+                                    >
+                                      <FileDown size={17} />
+                                    </button>
                                     <button className="icon-button" onClick={() => handleEditHourlyLeave(record)} title={`${record.date} düzenle`} aria-label={`${record.date} saatlik izin kaydını düzenle`}>
                                       <Edit3 size={17} />
                                     </button>
