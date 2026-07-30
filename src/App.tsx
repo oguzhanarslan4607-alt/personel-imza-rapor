@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowLeft,
   ArrowRight,
   ArchiveRestore,
   BarChart3,
@@ -7276,8 +7277,16 @@ function HomeDashboard({
   onOpenProfile: (staffId: string) => void;
 }) {
   const today = todayIso();
+  const [showAnnualLeaveEligibleList, setShowAnnualLeaveEligibleList] = useState(false);
+  const [annualLeaveEligibleSearch, setAnnualLeaveEligibleSearch] = useState("");
   const upcomingBirthdays = getUpcomingBirthdays(activeStaff, today, 3);
   const annualLeaveEligibleStaff = getAnnualLeaveEligibleStaff(activeStaff, today);
+  const normalizedAnnualLeaveEligibleSearch = annualLeaveEligibleSearch.trim().toLocaleLowerCase("tr-TR");
+  const filteredAnnualLeaveEligibleStaff = annualLeaveEligibleStaff.filter(({ staff: member }) => {
+    if (!normalizedAnnualLeaveEligibleSearch) return true;
+    return [member.name, member.department, member.title]
+      .some((value) => value.toLocaleLowerCase("tr-TR").includes(normalizedAnnualLeaveEligibleSearch));
+  });
   const upcomingLeaves = annualLeaveRecords
     .filter((record) => record.status !== "cancelled" && record.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))
@@ -7326,6 +7335,104 @@ function HomeDashboard({
     .slice(0, 3);
   const userLabel = adminEmail?.split("@")[0] || "Yönetici";
   const activeDepartmentCount = new Set(activeStaff.map((member) => member.department.trim()).filter(Boolean)).size;
+
+  if (showAnnualLeaveEligibleList) {
+    return (
+      <main className="workspace home-workspace">
+        <section className="home-entitlement-view" aria-labelledby="annual-leave-entitlement-title">
+          <header className="home-entitlement-view-head">
+            <button
+              className="home-entitlement-back"
+              type="button"
+              onClick={() => {
+                setShowAnnualLeaveEligibleList(false);
+                setAnnualLeaveEligibleSearch("");
+              }}
+            >
+              <ArrowLeft size={18} aria-hidden="true" />
+              Ana sayfaya dön
+            </button>
+            <div>
+              <span className="home-entitlement-view-icon" aria-hidden="true">
+                <CheckCircle2 size={22} />
+              </span>
+              <div>
+                <p>Yıllık izin takibi</p>
+                <h2 id="annual-leave-entitlement-title">Yıllık İzni Hak Edenler</h2>
+                <span>Giriş tarihine göre bu yıl yıllık izin hakkı kazanan aktif personeller</span>
+              </div>
+            </div>
+          </header>
+
+          <div className="home-entitlement-toolbar">
+            <div>
+              <strong>{annualLeaveEligibleStaff.length}</strong>
+              <span>Hak kazanan personel</span>
+            </div>
+            <label>
+              <Search size={17} aria-hidden="true" />
+              <input
+                type="search"
+                value={annualLeaveEligibleSearch}
+                onChange={(event) => setAnnualLeaveEligibleSearch(event.target.value)}
+                placeholder="İsim, departman veya unvan ara"
+                aria-label="Yıllık izin hakkı kazanan personellerde ara"
+              />
+            </label>
+          </div>
+
+          <div className="home-entitlement-table-wrap">
+            <div className="home-entitlement-table-head" aria-hidden="true">
+              <span>Personel</span>
+              <span>Departman / Unvan</span>
+              <span>Hak ediş tarihi</span>
+              <span>İzin hakkı</span>
+              <span />
+            </div>
+            <div className="home-entitlement-table">
+              {filteredAnnualLeaveEligibleStaff.map(({ staff: member, entitlementDate, entitlementDays }) => (
+                <article key={member.id}>
+                  <div className="home-entitlement-person">
+                    <span className="home-person-avatar is-entitled">
+                      {member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
+                    </span>
+                    <div>
+                      <strong>{member.name}</strong>
+                      <small>{member.phone || "Telefon bilgisi yok"}</small>
+                    </div>
+                  </div>
+                  <div className="home-entitlement-role">
+                    <strong>{member.department || "Departman belirtilmemiş"}</strong>
+                    <small>{member.title || "Unvan belirtilmemiş"}</small>
+                  </div>
+                  <time dateTime={entitlementDate}>{formatDateTr(entitlementDate)}</time>
+                  <strong className="home-entitlement-days">{entitlementDays} gün</strong>
+                  <button type="button" onClick={() => onOpenProfile(member.id)}>
+                    Profili aç <ArrowRight size={15} aria-hidden="true" />
+                  </button>
+                </article>
+              ))}
+              {!filteredAnnualLeaveEligibleStaff.length && (
+                <div className="home-entitlement-empty">
+                  <CheckCircle2 size={28} aria-hidden="true" />
+                  <strong>
+                    {annualLeaveEligibleStaff.length
+                      ? "Aramanızla eşleşen personel bulunamadı."
+                      : "Bu yıl henüz yıllık izin hakkı kazanan personel yok."}
+                  </strong>
+                  <span>
+                    {annualLeaveEligibleStaff.length
+                      ? "Farklı bir isim, departman veya unvan arayabilirsiniz."
+                      : "Personeller hak ediş tarihine ulaştığında burada otomatik olarak listelenecek."}
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   return (
     <main className="workspace home-workspace">
@@ -7505,7 +7612,11 @@ function HomeDashboard({
                 </div>
               )}
             </div>
-            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("profiles")}>
+            <button
+              className="home-link home-card-link"
+              type="button"
+              onClick={() => setShowAnnualLeaveEligibleList(true)}
+            >
               Tümünü gör ({annualLeaveEligibleStaff.length}) <ArrowRight size={16} aria-hidden="true" />
             </button>
           </article>

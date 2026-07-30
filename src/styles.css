@@ -3356,6 +3356,227 @@ textarea:focus {
   font-weight: 700;
 }
 
+.home-entitlement-view {
+  overflow: hidden;
+  border: 1px solid #e3e8f0;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 10px 30px rgba(35, 55, 88, 0.06);
+}
+
+.home-entitlement-view-head {
+  padding: 22px 24px 20px;
+  border-bottom: 1px solid #e8edf4;
+}
+
+.home-entitlement-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 22px;
+  padding: 0;
+  color: #60728e;
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.home-entitlement-back:hover {
+  color: #356cff;
+}
+
+.home-entitlement-view-head > div {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.home-entitlement-view-icon {
+  display: grid;
+  width: 48px;
+  height: 48px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 14px;
+  color: #fff;
+  background: linear-gradient(145deg, #4fc377, #238c47);
+  box-shadow: 0 8px 18px rgba(36, 147, 74, 0.2);
+}
+
+.home-entitlement-view-head p {
+  margin: 0 0 3px;
+  color: #38935a;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-entitlement-view-head h2 {
+  margin: 0;
+  color: #263a5d;
+  font-size: 23px;
+}
+
+.home-entitlement-view-head div > div > span {
+  display: block;
+  margin-top: 5px;
+  color: #7d8ca3;
+  font-size: 12px;
+}
+
+.home-entitlement-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 18px 24px;
+  background: #f8fafc;
+}
+
+.home-entitlement-toolbar > div {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  color: #73839a;
+  font-size: 11px;
+}
+
+.home-entitlement-toolbar > div strong {
+  color: #268c48;
+  font-size: 24px;
+}
+
+.home-entitlement-toolbar label {
+  display: flex;
+  align-items: center;
+  width: min(100%, 340px);
+  gap: 9px;
+  padding: 0 13px;
+  border: 1px solid #dce3ed;
+  border-radius: 10px;
+  color: #8190a5;
+  background: #fff;
+}
+
+.home-entitlement-toolbar input {
+  width: 100%;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+.home-entitlement-table-wrap {
+  padding: 0 24px 24px;
+}
+
+.home-entitlement-table-head,
+.home-entitlement-table article {
+  display: grid;
+  grid-template-columns: minmax(190px, 1.45fr) minmax(160px, 1fr) minmax(140px, 0.85fr) 100px 100px;
+  align-items: center;
+  gap: 18px;
+}
+
+.home-entitlement-table-head {
+  min-height: 46px;
+  color: #8795aa;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.home-entitlement-table article {
+  min-height: 72px;
+  padding: 10px 0;
+  border-top: 1px solid #edf0f5;
+}
+
+.home-entitlement-person {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 11px;
+}
+
+.home-entitlement-person > div,
+.home-entitlement-role {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.home-entitlement-person strong,
+.home-entitlement-role strong {
+  overflow: hidden;
+  color: #314767;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-entitlement-person small,
+.home-entitlement-role small {
+  overflow: hidden;
+  color: #8a98ab;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-entitlement-table time {
+  color: #516581;
+  font-size: 11px;
+}
+
+.home-entitlement-days {
+  justify-self: start;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #268c48;
+  background: #eaf7ee;
+  font-size: 11px;
+}
+
+.home-entitlement-table article > button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 5px;
+  padding: 0;
+  color: #356cff;
+  background: transparent;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.home-entitlement-empty {
+  display: grid;
+  min-height: 280px;
+  place-items: center;
+  align-content: center;
+  gap: 8px;
+  border-top: 1px solid #edf0f5;
+  color: #65ae7c;
+  text-align: center;
+}
+
+.home-entitlement-empty strong {
+  color: #415574;
+  font-size: 13px;
+}
+
+.home-entitlement-empty span {
+  color: #8b99ac;
+  font-size: 11px;
+}
+
 .home-birthday-card .home-people-list small {
   color: #a36a12;
   font-weight: 700;
@@ -3513,7 +3734,10 @@ textarea:focus {
 :root[data-theme="dark"] .settings-grid,
 :root[data-theme="dark"] .home-card,
 :root[data-theme="dark"] .home-donut > div,
-:root[data-theme="dark"] .home-today-grid > div {
+:root[data-theme="dark"] .home-today-grid > div,
+:root[data-theme="dark"] .home-entitlement-view,
+:root[data-theme="dark"] .home-entitlement-toolbar,
+:root[data-theme="dark"] .home-entitlement-toolbar label {
   background: var(--panel);
 }
 
@@ -3524,7 +3748,12 @@ textarea:focus {
 :root[data-theme="dark"] .home-holiday-list > div,
 :root[data-theme="dark"] .home-card-link,
 :root[data-theme="dark"] .home-profile-details,
-:root[data-theme="dark"] .home-card-foot {
+:root[data-theme="dark"] .home-card-foot,
+:root[data-theme="dark"] .home-entitlement-view,
+:root[data-theme="dark"] .home-entitlement-view-head,
+:root[data-theme="dark"] .home-entitlement-toolbar label,
+:root[data-theme="dark"] .home-entitlement-table article,
+:root[data-theme="dark"] .home-entitlement-empty {
   border-color: #334155;
 }
 
@@ -3533,7 +3762,12 @@ textarea:focus {
 :root[data-theme="dark"] .home-donut strong,
 :root[data-theme="dark"] .home-list-row strong,
 :root[data-theme="dark"] .home-holiday-list strong,
-:root[data-theme="dark"] .home-today-grid strong {
+:root[data-theme="dark"] .home-today-grid strong,
+:root[data-theme="dark"] .home-entitlement-view-head h2,
+:root[data-theme="dark"] .home-entitlement-person strong,
+:root[data-theme="dark"] .home-entitlement-role strong,
+:root[data-theme="dark"] .home-entitlement-empty strong,
+:root[data-theme="dark"] .home-entitlement-toolbar input {
   color: var(--ink);
 }
 
@@ -3681,6 +3915,16 @@ textarea:focus {
 
   .home-column:last-child .home-card:last-child {
     grid-column: 1 / -1;
+  }
+
+  .home-entitlement-table-head,
+  .home-entitlement-table article {
+    grid-template-columns: minmax(180px, 1.3fr) minmax(150px, 1fr) 130px 90px;
+  }
+
+  .home-entitlement-table-head span:last-child,
+  .home-entitlement-table article > button {
+    display: none;
   }
 
   .dashboard-metrics {
@@ -3857,6 +4101,70 @@ textarea:focus {
 
   .home-column:last-child .home-card:last-child {
     grid-column: auto;
+  }
+
+  .home-entitlement-view-head {
+    padding: 18px 16px;
+  }
+
+  .home-entitlement-back {
+    margin-bottom: 18px;
+  }
+
+  .home-entitlement-view-head > div {
+    align-items: flex-start;
+  }
+
+  .home-entitlement-view-icon {
+    width: 42px;
+    height: 42px;
+  }
+
+  .home-entitlement-view-head h2 {
+    font-size: 19px;
+  }
+
+  .home-entitlement-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    padding: 14px 16px;
+  }
+
+  .home-entitlement-toolbar label {
+    width: 100%;
+  }
+
+  .home-entitlement-table-wrap {
+    padding: 0 16px 16px;
+  }
+
+  .home-entitlement-table-head {
+    display: none;
+  }
+
+  .home-entitlement-table article {
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    padding: 16px 0;
+  }
+
+  .home-entitlement-person {
+    grid-column: 1 / -1;
+  }
+
+  .home-entitlement-role {
+    grid-column: 1 / -1;
+    padding-left: 40px;
+  }
+
+  .home-entitlement-table time {
+    padding-left: 40px;
+  }
+
+  .home-entitlement-days {
+    align-self: center;
   }
 
   .home-donut {
