@@ -7278,8 +7278,10 @@ function HomeDashboard({
 }) {
   const today = todayIso();
   const [showAnnualLeaveEligibleList, setShowAnnualLeaveEligibleList] = useState(false);
+  const [showUpcomingBirthdaysList, setShowUpcomingBirthdaysList] = useState(false);
   const [annualLeaveEligibleSearch, setAnnualLeaveEligibleSearch] = useState("");
-  const upcomingBirthdays = getUpcomingBirthdays(activeStaff, today, 3);
+  const upcomingBirthdays = getUpcomingBirthdays(activeStaff, today, activeStaff.length)
+    .filter(({ daysUntil }) => daysUntil <= 60);
   const annualLeaveEligibleStaff = getAnnualLeaveEligibleStaff(activeStaff, today);
   const normalizedAnnualLeaveEligibleSearch = annualLeaveEligibleSearch.trim().toLocaleLowerCase("tr-TR");
   const filteredAnnualLeaveEligibleStaff = annualLeaveEligibleStaff.filter(({ staff: member }) => {
@@ -7335,6 +7337,86 @@ function HomeDashboard({
     .slice(0, 3);
   const userLabel = adminEmail?.split("@")[0] || "Yönetici";
   const activeDepartmentCount = new Set(activeStaff.map((member) => member.department.trim()).filter(Boolean)).size;
+
+  if (showUpcomingBirthdaysList) {
+    return (
+      <main className="workspace home-workspace">
+        <section
+          className="home-entitlement-view home-birthday-view"
+          aria-labelledby="upcoming-birthdays-title"
+        >
+          <header className="home-entitlement-view-head">
+            <button
+              className="home-entitlement-back"
+              type="button"
+              onClick={() => setShowUpcomingBirthdaysList(false)}
+            >
+              <ArrowLeft size={18} aria-hidden="true" />
+              Ana sayfaya dön
+            </button>
+            <div>
+              <span className="home-entitlement-view-icon" aria-hidden="true">
+                <Cake size={22} />
+              </span>
+              <div>
+                <p>Doğum günü takvimi</p>
+                <h2 id="upcoming-birthdays-title">Gelecek 2 Ayın Doğum Günleri</h2>
+                <span>Önümüzdeki 60 gün içinde doğum günü olan aktif personeller</span>
+              </div>
+            </div>
+          </header>
+
+          <div className="home-entitlement-toolbar home-birthday-toolbar">
+            <div>
+              <strong>{upcomingBirthdays.length}</strong>
+              <span>Yaklaşan doğum günü</span>
+            </div>
+          </div>
+
+          <div className="home-entitlement-table-wrap">
+            <div className="home-entitlement-table-head" aria-hidden="true">
+              <span>Personel</span>
+              <span>Departman / Unvan</span>
+              <span>Kalan süre</span>
+              <span>Doğum günü</span>
+              <span />
+            </div>
+            <div className="home-entitlement-table">
+              {upcomingBirthdays.map(({ staff: member, nextBirthday, daysUntil }) => (
+                <article key={member.id}>
+                  <div className="home-entitlement-person">
+                    <span className="home-person-avatar is-birthday">
+                      {member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
+                    </span>
+                    <div>
+                      <strong>{member.name}</strong>
+                      <small>{member.phone || "Telefon bilgisi yok"}</small>
+                    </div>
+                  </div>
+                  <div className="home-entitlement-role">
+                    <strong>{member.department || "Departman belirtilmemiş"}</strong>
+                    <small>{member.title || "Unvan belirtilmemiş"}</small>
+                  </div>
+                  <strong className="home-birthday-timing">{getBirthdayTimingLabel(daysUntil)}</strong>
+                  <time dateTime={nextBirthday}>{formatDateTr(nextBirthday)}</time>
+                  <button type="button" onClick={() => onOpenProfile(member.id)}>
+                    Profili aç <ArrowRight size={15} aria-hidden="true" />
+                  </button>
+                </article>
+              ))}
+              {!upcomingBirthdays.length && (
+                <div className="home-entitlement-empty">
+                  <Cake size={28} aria-hidden="true" />
+                  <strong>Önümüzdeki 60 gün içinde doğum günü bulunan personel yok.</strong>
+                  <span>Yeni yaklaşan doğum günleri bu listede otomatik olarak gösterilecek.</span>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      </main>
+    );
+  }
 
   if (showAnnualLeaveEligibleList) {
     return (
@@ -7544,7 +7626,7 @@ function HomeDashboard({
           <article className="home-card home-birthday-card">
             <HomeCardHeader icon={Cake} title="Yaklaşan Doğum Günleri" />
             <div className="home-people-list">
-              {upcomingBirthdays.map(({ staff: member, nextBirthday, daysUntil }) => (
+              {upcomingBirthdays.slice(0, 3).map(({ staff: member, nextBirthday, daysUntil }) => (
                 <button key={member.id} type="button" onClick={() => onOpenProfile(member.id)}>
                   <span className="home-person-avatar is-birthday">
                     {member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
@@ -7558,12 +7640,16 @@ function HomeDashboard({
               ))}
               {!upcomingBirthdays.length && (
                 <div className="home-empty">
-                  Doğum tarihi girilen personeller burada görünecek.
+                  Önümüzdeki 60 gün içinde doğum günü bulunan personel yok.
                 </div>
               )}
             </div>
-            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("staff")}>
-              Doğum tarihlerini düzenle <ArrowRight size={16} aria-hidden="true" />
+            <button
+              className="home-link home-card-link home-birthday-link"
+              type="button"
+              onClick={() => setShowUpcomingBirthdaysList(true)}
+            >
+              Gelecek 2 ay <ArrowRight size={16} aria-hidden="true" />
             </button>
           </article>
         </div>

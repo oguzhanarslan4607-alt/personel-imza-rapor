@@ -3582,6 +3582,40 @@ textarea:focus {
   font-weight: 700;
 }
 
+.home-birthday-link {
+  color: #a36a12;
+}
+
+.home-birthday-link:hover {
+  color: #80500a;
+}
+
+.home-birthday-view .home-entitlement-view-icon {
+  background: linear-gradient(145deg, #ffbd4d, #f39a31);
+  box-shadow: 0 8px 18px rgba(243, 154, 49, 0.22);
+}
+
+.home-birthday-view .home-entitlement-view-head p {
+  color: #b87512;
+}
+
+.home-birthday-toolbar > div strong {
+  color: #b87512;
+}
+
+.home-birthday-timing {
+  justify-self: start;
+  padding: 6px 10px;
+  border-radius: 999px;
+  color: #9b610b;
+  background: #fff4d9;
+  font-size: 11px;
+}
+
+.home-birthday-view .home-entitlement-empty {
+  color: #d29938;
+}
+
 .home-people-list button > span:nth-child(2) {
   display: grid;
   min-width: 0;
