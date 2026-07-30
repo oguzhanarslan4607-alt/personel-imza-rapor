@@ -1,5 +1,6 @@
 import {
   Activity,
+  ArrowRight,
   ArchiveRestore,
   BarChart3,
   CalendarCheck,
@@ -12,6 +13,7 @@ import {
   FileUp,
   FileSpreadsheet,
   FileDown,
+  Grid3X3,
   History,
   KeyRound,
   LayoutDashboard,
@@ -19,7 +21,9 @@ import {
   LogOut,
   Mail,
   Moon,
+  MoreVertical,
   PieChart,
+  Plane,
   Plus,
   Printer,
   RefreshCw,
@@ -123,6 +127,7 @@ import type {
 } from "./types";
 
 type TabKey =
+  | "home"
   | "daily"
   | "print"
   | "reports"
@@ -239,7 +244,10 @@ type StaffInsight = {
   lastRecord: AttendanceRecord | null;
 };
 
-const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = [
+type NavigationTab = { key: TabKey; label: string; icon: typeof CalendarCheck };
+
+const tabs: NavigationTab[] = [
+  { key: "home", label: "Ana Sayfa", icon: LayoutDashboard },
   { key: "daily", label: "Günlük Kayıt", icon: CalendarCheck },
   { key: "print", label: "İmza Föyü", icon: Printer },
   { key: "reports", label: "Raporlar", icon: BarChart3 },
@@ -254,6 +262,36 @@ const tabs: Array<{ key: TabKey; label: string; icon: typeof CalendarCheck }> = 
   { key: "settings", label: "Ayarlar", icon: Settings },
 ];
 const tabKeys = tabs.map((tab) => tab.key);
+
+function NavigationTabs({
+  className,
+  activeTab,
+  onSelect,
+}: {
+  className: string;
+  activeTab: TabKey;
+  onSelect: (tab: TabKey) => void;
+}) {
+  return (
+    <nav className={className} aria-label="Ana bölümler">
+      {tabs.map((tab) => {
+        const Icon = tab.icon;
+        return (
+          <button
+            key={tab.key}
+            className={activeTab === tab.key ? "is-active" : ""}
+            onClick={() => onSelect(tab.key)}
+            title={tab.label}
+            type="button"
+          >
+            <Icon size={18} aria-hidden="true" />
+            <span>{tab.label}</span>
+          </button>
+        );
+      })}
+    </nav>
+  );
+}
 
 const statusLabels: Record<AttendanceStatus, string> = {
   present: "Geldi",
@@ -1095,7 +1133,7 @@ function getLoginErrorMessage(error: unknown) {
 
 function App() {
   const [activeTab, setActiveTab] = useState<TabKey>(
-    () => parseAppNavigation(window.location.search, tabKeys, "daily").tab,
+    () => parseAppNavigation(window.location.search, tabKeys, "home").tab,
   );
   const [settings, setSettings] = useState<AppSettings>(() => loadSettings());
   const [admin, setAdmin] = useState<AdminUser | null>(null);
@@ -1116,7 +1154,7 @@ function App() {
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
   const [profileStaffId, setProfileStaffId] = useState(
-    () => parseAppNavigation(window.location.search, tabKeys, "daily").profileStaffId,
+    () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
   const [bulkSearch, setBulkSearch] = useState("");
   const [bulkDepartment, setBulkDepartment] = useState("all");
@@ -2159,7 +2197,7 @@ function App() {
       window.location.search,
       activeTab,
       profileStaffId,
-      "daily",
+      "home",
     );
     if (nextSearch === window.location.search) return;
 
@@ -2172,7 +2210,7 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const navigation = parseAppNavigation(window.location.search, tabKeys, "daily");
+      const navigation = parseAppNavigation(window.location.search, tabKeys, "home");
       setActiveTab(navigation.tab);
       setProfileStaffId(navigation.profileStaffId);
     };
@@ -2245,7 +2283,7 @@ function App() {
     setBusy(true);
     try {
       await signOutAdmin();
-      setActiveTab("daily");
+      setActiveTab("home");
       setMessage("");
     } finally {
       setBusy(false);
@@ -4334,34 +4372,34 @@ function App() {
           <div className="side-brand">
             <img className="brand-logo side-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
             <div>
-              <p className="eyebrow">Personel devam sistemi</p>
-              <strong>{settings.companyName}</strong>
+              <p className="eyebrow">Personel</p>
+              <strong>İK Yönetimi</strong>
             </div>
           </div>
 
-          <nav className="tabbar" aria-label="Ana bölümler">
-            {tabs.map((tab) => {
-              const Icon = tab.icon;
-              return (
-                <button
-                  key={tab.key}
-                  className={activeTab === tab.key ? "is-active" : ""}
-                  onClick={() => setActiveTab(tab.key)}
-                  title={tab.label}
-                >
-                  <Icon size={18} aria-hidden="true" />
-                  <span>{tab.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          <p className="side-nav-label">Yönetim</p>
+          <NavigationTabs className="tabbar" activeTab={activeTab} onSelect={setActiveTab} />
+
+          <div className="side-footer">
+            <span className={`side-status ${firebaseConfigured ? "is-online" : "is-local"}`}>
+              <Database size={16} aria-hidden="true" />
+              {firebaseConfigured ? "Firebase bağlı" : "Yerel taslak"}
+            </span>
+            <span className="side-company" title={settings.companyName}>
+              <ShieldCheck size={16} aria-hidden="true" />
+              {settings.companyName}
+            </span>
+          </div>
         </aside>
 
         <div className="content-shell">
           <header className="topbar">
-            <div>
-              <p className="eyebrow">Yönetici paneli</p>
-              <h1>{settings.companyName}</h1>
+            <div className="page-title">
+              <p className="eyebrow">Merhaba, Yönetici</p>
+              <h1>
+                Bugün <strong>{formatDateTr(todayIso())}</strong>
+                <span>{tabs.find((tab) => tab.key === activeTab)?.label ?? "Yönetici Paneli"}</span>
+              </h1>
             </div>
             <div className="top-actions">
               <span className={`connection-badge ${firebaseConfigured ? "is-online" : "is-local"}`}>
@@ -4391,27 +4429,27 @@ function App() {
               <button className="icon-button" onClick={() => void refreshStaff()} title="Yenile" aria-label="Yenile">
                 <RefreshCw size={18} />
               </button>
+              <span className="app-launcher" aria-hidden="true">
+                <Grid3X3 size={20} />
+              </span>
             </div>
           </header>
 
-          <nav className="mobile-tabbar" aria-label="Ana bölümler">
-          {tabs.map((tab) => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.key}
-                className={activeTab === tab.key ? "is-active" : ""}
-                onClick={() => setActiveTab(tab.key)}
-                title={tab.label}
-              >
-                <Icon size={18} aria-hidden="true" />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
-          </nav>
+          <NavigationTabs className="mobile-tabbar" activeTab={activeTab} onSelect={setActiveTab} />
 
           {message && <div className="notice">{message}</div>}
+
+        {activeTab === "home" && (
+          <HomeDashboard
+            settings={settings}
+            adminEmail={admin?.email ?? null}
+            activeStaff={activeStaff}
+            annualLeaveRecords={annualLeaveRecords}
+            auditLogs={auditLogs}
+            dailyStats={dailyStats}
+            onNavigate={setActiveTab}
+          />
+        )}
 
         {activeTab === "daily" && (
           <main className="workspace">
@@ -7122,6 +7160,265 @@ function AccessDeniedScreen({ email, onSignOut, busy }: { email: string | null; 
         </button>
       </section>
     </main>
+  );
+}
+
+const homeChartColors = ["#5471cf", "#91cd76", "#ffca58", "#ef6267", "#65bed2", "#32a57d", "#ff814a", "#9a54bd"];
+
+function HomeDashboard({
+  settings,
+  adminEmail,
+  activeStaff,
+  annualLeaveRecords,
+  auditLogs,
+  dailyStats,
+  onNavigate,
+}: {
+  settings: AppSettings;
+  adminEmail: string | null;
+  activeStaff: StaffMember[];
+  annualLeaveRecords: AnnualLeaveRecord[];
+  auditLogs: AuditLogRecord[];
+  dailyStats: { processed: number; present: number; late: number; absent: number; excused: number };
+  onNavigate: (tab: TabKey) => void;
+}) {
+  const today = todayIso();
+  const upcomingLeaves = annualLeaveRecords
+    .filter((record) => record.status !== "cancelled" && record.endDate >= today)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate))
+    .slice(0, 4);
+  const plannedLeaveDays = annualLeaveRecords
+    .filter((record) => record.status === "planned" && record.endDate >= today)
+    .reduce((total, record) => total + record.usedDays, 0);
+  const usedLeaveDays = annualLeaveRecords
+    .filter((record) => record.status === "used" || record.status === "completed")
+    .reduce((total, record) => total + record.usedDays, 0);
+  const leaveTotal = Math.max(1, plannedLeaveDays + usedLeaveDays);
+  const plannedPercent = Math.min(100, Math.round((plannedLeaveDays / leaveTotal) * 100));
+  const departmentCounts = Array.from(
+    activeStaff.reduce((counts, member) => {
+      const name = member.department.trim() || "Departman Yok";
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>()),
+  )
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, homeChartColors.length);
+  let chartCursor = 0;
+  const chartSegments = departmentCounts.map(([name, count], index) => {
+    const start = chartCursor;
+    chartCursor += activeStaff.length ? (count / activeStaff.length) * 100 : 0;
+    return {
+      name,
+      count,
+      color: homeChartColors[index],
+      segment: `${homeChartColors[index]} ${start}% ${chartCursor}%`,
+    };
+  });
+  const chartBackground = chartSegments.length
+    ? `conic-gradient(${chartSegments.map((item) => item.segment).join(", ")})`
+    : "conic-gradient(#e8edf5 0 100%)";
+  const recentStaff = [...activeStaff]
+    .filter((member) => member.startDate)
+    .sort((a, b) => (b.startDate ?? "").localeCompare(a.startDate ?? ""))
+    .slice(0, 3);
+  const currentYear = Number(today.slice(0, 4));
+  const upcomingHolidays = [
+    ...getTurkiyePublicHolidays(currentYear),
+    ...getTurkiyePublicHolidays(currentYear + 1),
+  ]
+    .filter((holiday) => holiday.date >= today)
+    .slice(0, 3);
+  const userLabel = adminEmail?.split("@")[0] || "Yönetici";
+  const activeDepartmentCount = new Set(activeStaff.map((member) => member.department.trim()).filter(Boolean)).size;
+
+  return (
+    <main className="workspace home-workspace">
+      <section className="home-grid" aria-label="Ana sayfa özeti">
+        <div className="home-column">
+          <article className="home-card home-profile-card">
+            <div className="home-profile-head">
+              <div>
+                <p>Hoş geldiniz</p>
+                <h2>{userLabel}</h2>
+                <span>{settings.companyName}</span>
+              </div>
+              <div className="home-avatar" aria-hidden="true">
+                <img src={BRAND_LOGO_SRC} alt="" />
+              </div>
+            </div>
+            <dl className="home-profile-details">
+              <div>
+                <dt>Aktif Personel</dt>
+                <dd>{activeStaff.length}</dd>
+              </div>
+              <div>
+                <dt>Departman</dt>
+                <dd>{activeDepartmentCount}</dd>
+              </div>
+            </dl>
+            <button className="home-link" type="button" onClick={() => onNavigate("profiles")}>
+              Profilleri görüntüle <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </article>
+
+          <article className="home-card home-distribution-card">
+            <HomeCardHeader icon={PieChart} title="Çalışan Dağılımı" />
+            <div className="home-donut-wrap">
+              <div className="home-donut" style={{ background: chartBackground }}>
+                <div>
+                  <span>Toplam</span>
+                  <strong>{activeStaff.length}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="home-chart-legend">
+              {chartSegments.slice(0, 4).map((item) => (
+                <span key={item.name}>
+                  <i style={{ background: item.color }} />
+                  {item.name} <strong>{item.count}</strong>
+                </span>
+              ))}
+              {!chartSegments.length && <p>Personel verisi eklendiğinde dağılım burada görünür.</p>}
+            </div>
+            <div className="home-card-foot">
+              <Users size={16} aria-hidden="true" />
+              {activeStaff.length} aktif çalışan
+            </div>
+          </article>
+        </div>
+
+        <div className="home-column">
+          <article className="home-card home-leave-card">
+            <HomeCardHeader icon={Plane} title="İzin Bilgileri" actionLabel="İzinleri yenile" />
+            <div className="home-leave-summary">
+              <p>{formatDateTr(today)} tarihi itibarıyla</p>
+              <strong>{plannedLeaveDays} gün</strong>
+              <div className="home-progress" aria-label={`Planlanan izin oranı yüzde ${plannedPercent}`}>
+                <span style={{ width: `${plannedPercent}%` }} />
+              </div>
+              <div className="home-progress-key">
+                <span><i className="is-planned" /> Planlanan {plannedLeaveDays}</span>
+                <span><i className="is-used" /> Kullanılan {usedLeaveDays}</span>
+              </div>
+            </div>
+            <div className="home-list">
+              {annualLeaveRecords
+                .filter((record) => record.status !== "cancelled")
+                .sort((a, b) => b.startDate.localeCompare(a.startDate))
+                .slice(0, 4)
+                .map((record) => (
+                  <div className="home-list-row" key={record.id}>
+                    <span className={`home-status-dot is-${record.status}`} />
+                    <strong>{annualLeaveTypeLabels[record.leaveType]}</strong>
+                    <small>{record.usedDays}g</small>
+                    <time>{formatShortDate(record.startDate)}</time>
+                  </div>
+                ))}
+              {!annualLeaveRecords.length && <div className="home-empty">Henüz izin kaydı bulunmuyor.</div>}
+            </div>
+            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("annualLeave")}>
+              Tümünü gör <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </article>
+
+          <article className="home-card">
+            <HomeCardHeader icon={Users} title="Son Personel Katılımları" />
+            <div className="home-people-list">
+              {recentStaff.map((member) => (
+                <button key={member.id} type="button" onClick={() => onNavigate("profiles")}>
+                  <span className="home-person-avatar">{member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}</span>
+                  <span>
+                    <strong>{member.name}</strong>
+                    <small>{member.department || member.title || "Personel"}</small>
+                  </span>
+                  <time>{member.startDate ? formatShortDate(member.startDate) : "-"}</time>
+                </button>
+              ))}
+              {!recentStaff.length && <div className="home-empty">İşe giriş tarihi bulunan personel yok.</div>}
+            </div>
+          </article>
+        </div>
+
+        <div className="home-column">
+          <article className="home-card">
+            <HomeCardHeader icon={CalendarCheck} title="Yaklaşan İzinler" />
+            <div className="home-people-list">
+              {upcomingLeaves.map((record) => {
+                const member = activeStaff.find((item) => item.id === record.staffId);
+                return (
+                  <button key={record.id} type="button" onClick={() => onNavigate("annualLeave")}>
+                    <span className="home-person-avatar is-blue">
+                      {(member?.name || "?").slice(0, 1).toLocaleUpperCase("tr-TR")}
+                    </span>
+                    <span>
+                      <strong>{member?.name || "Personel"}</strong>
+                      <small>{annualLeaveTypeLabels[record.leaveType]}</small>
+                    </span>
+                    <time>{formatShortDate(record.startDate)}</time>
+                  </button>
+                );
+              })}
+              {!upcomingLeaves.length && <div className="home-empty">Yaklaşan izin bulunmuyor.</div>}
+            </div>
+          </article>
+
+          <article className="home-card">
+            <HomeCardHeader icon={CalendarDays} title="Resmi Tatiller" />
+            <div className="home-holiday-list">
+              {upcomingHolidays.map((holiday) => (
+                <div key={`${holiday.date}-${holiday.name}`}>
+                  <strong>{holiday.name}</strong>
+                  <span>{holiday.duration === "half" ? "0,5g" : "1g"}</span>
+                  <time>{formatShortDate(holiday.date)}</time>
+                </div>
+              ))}
+            </div>
+            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("holidayWork")}>
+              Takvimi aç <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </article>
+
+          <article className="home-card">
+            <HomeCardHeader icon={Activity} title="Bugünün Özeti" />
+            <div className="home-today-grid">
+              <div><span>Geldi</span><strong>{dailyStats.present}</strong></div>
+              <div><span>Geç</span><strong>{dailyStats.late}</strong></div>
+              <div><span>Gelmedi</span><strong>{dailyStats.absent}</strong></div>
+              <div><span>İzinli</span><strong>{dailyStats.excused}</strong></div>
+            </div>
+            {auditLogs[0] && (
+              <p className="home-last-action">
+                Son işlem: <strong>{auditLogs[0].action}</strong>
+              </p>
+            )}
+            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("daily")}>
+              Günlük kayda git <ArrowRight size={16} aria-hidden="true" />
+            </button>
+          </article>
+        </div>
+      </section>
+    </main>
+  );
+}
+
+function HomeCardHeader({
+  icon: Icon,
+  title,
+  actionLabel,
+}: {
+  icon: typeof CalendarCheck;
+  title: string;
+  actionLabel?: string;
+}) {
+  return (
+    <header className="home-card-head">
+      <span><Icon size={17} aria-hidden="true" /></span>
+      <h2>{title}</h2>
+      <button type="button" title={actionLabel || "Diğer seçenekler"} aria-label={actionLabel || `${title} seçenekleri`}>
+        {actionLabel ? <RefreshCw size={16} aria-hidden="true" /> : <MoreVertical size={17} aria-hidden="true" />}
+      </button>
+    </header>
   );
 }
 
