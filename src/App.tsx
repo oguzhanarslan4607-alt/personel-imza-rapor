@@ -2540,7 +2540,6 @@ function App() {
   function handleStartEditProfileStaff(member: StaffMember) {
     setProfileStaffId(member.id);
     setEditingStaff({ ...member });
-    setActiveTab("staff");
   }
 
   async function handleUpdateStaff(event: FormEvent) {
@@ -6499,118 +6498,6 @@ function App() {
                 </button>
               </form>
 
-              {editingStaff && (
-                <form onSubmit={handleUpdateStaff} className="staff-form edit-form">
-                  <div className="panel-heading compact-heading">
-                    <div>
-                      <h2>Personel Düzenle</h2>
-                      <span>{editingStaff.name}</span>
-                    </div>
-                  </div>
-                  <label>
-                    Ad Soyad
-                    <input
-                      value={editingStaff.name}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, name: event.target.value } : previous)}
-                      required
-                    />
-                  </label>
-                  <label>
-                    Departman
-                    <input
-                      value={editingStaff.department}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, department: event.target.value } : previous)}
-                    />
-                  </label>
-                  <label>
-                    Ünvan
-                    <input
-                      value={editingStaff.title}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, title: event.target.value } : previous)}
-                    />
-                  </label>
-                  <label>
-                    T.C. Kimlik No
-                    <input
-                      value={editingStaff.nationalId ?? ""}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, nationalId: event.target.value } : previous)}
-                      inputMode="numeric"
-                    />
-                  </label>
-                  <label>
-                    Telefon
-                    <input
-                      value={editingStaff.phone ?? ""}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, phone: event.target.value } : previous)}
-                      inputMode="tel"
-                    />
-                  </label>
-                  <label>
-                    SGK Görev Kodu
-                    <input
-                      value={editingStaff.socialSecurityCode ?? ""}
-                      onChange={(event) =>
-                        setEditingStaff((previous) => previous ? { ...previous, socialSecurityCode: event.target.value } : previous)
-                      }
-                    />
-                  </label>
-                  <label>
-                    Vardiya
-                    <input
-                      value={editingStaff.shiftType ?? ""}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, shiftType: event.target.value } : previous)}
-                      placeholder="09:00 - 18:00"
-                    />
-                  </label>
-                  <label>
-                    İşe Giriş
-                    <input
-                      type="date"
-                      value={editingStaff.startDate ?? ""}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, startDate: event.target.value } : previous)}
-                    />
-                  </label>
-                  <label>
-                    İşten Çıkış
-                    <input
-                      type="date"
-                      value={editingStaff.endDate ?? ""}
-                      onChange={(event) => setEditingStaff((previous) => previous ? { ...previous, endDate: event.target.value } : previous)}
-                    />
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={editingStaff.showOnSignatureSheet !== false}
-                      onChange={(event) =>
-                        setEditingStaff((previous) => previous ? { ...previous, showOnSignatureSheet: event.target.checked } : previous)
-                      }
-                    />
-                    <span>İmza föyünde göster</span>
-                  </label>
-                  <label className="checkbox-field">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(editingStaff.fixedStaff)}
-                      onChange={(event) =>
-                        setEditingStaff((previous) => previous ? { ...previous, fixedStaff: event.target.checked } : previous)
-                      }
-                    />
-                    <span>Sabit personel</span>
-                  </label>
-                  <div className="button-row">
-                    <button className="primary-action" type="submit" disabled={busy}>
-                      <Save size={18} aria-hidden="true" />
-                      Güncelle
-                    </button>
-                    <button className="secondary-action" type="button" onClick={() => setEditingStaff(null)}>
-                      <X size={18} aria-hidden="true" />
-                      Vazgeç
-                    </button>
-                  </div>
-                </form>
-              )}
-
               <div className="import-box">
                 <label>
                   Toplu Personel
@@ -6830,8 +6717,29 @@ function App() {
               <StaffInsightPanel insight={selectedStaffInsight} onClose={() => setSelectedStaffId("")} />
             </div>
           )}
+          {activeTab === "profiles" && profileStaff && (
+            <button
+              className="profile-quick-edit"
+              type="button"
+              onClick={() => handleStartEditProfileStaff(profileStaff)}
+              aria-label={`${profileStaff.name} bilgilerini düzenle`}
+            >
+              <Edit3 size={19} aria-hidden="true" />
+              <span>Personeli Düzenle</span>
+            </button>
+          )}
         </div>
       </div>
+
+      {editingStaff && (
+        <StaffEditDialog
+          staff={editingStaff}
+          busy={busy}
+          onChange={setEditingStaff}
+          onSubmit={handleUpdateStaff}
+          onClose={() => setEditingStaff(null)}
+        />
+      )}
 
       <div className="print-area" aria-hidden="true">
         {printMode === "incapacity" ? (
@@ -7160,6 +7068,158 @@ function AccessDeniedScreen({ email, onSignOut, busy }: { email: string | null; 
         </button>
       </section>
     </main>
+  );
+}
+
+function StaffEditDialog({
+  staff,
+  busy,
+  onChange,
+  onSubmit,
+  onClose,
+}: {
+  staff: StaffMember;
+  busy: boolean;
+  onChange: (staff: StaffMember) => void;
+  onSubmit: (event: FormEvent) => void;
+  onClose: () => void;
+}) {
+  const update = (patch: Partial<StaffMember>) => onChange({ ...staff, ...patch });
+
+  return (
+    <div
+      className="staff-edit-backdrop screen-only"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <section className="staff-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="staff-edit-title">
+        <header className="staff-edit-header">
+          <div className="staff-edit-identity">
+            <div className="staff-edit-avatar" aria-hidden="true">
+              {staff.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
+              <span><Plane size={18} /></span>
+            </div>
+            <div>
+              <p>Personel kartı</p>
+              <h2 id="staff-edit-title">{staff.name || "Personel Bilgilerini Düzenle"}</h2>
+              <span>{[staff.department, staff.title].filter(Boolean).join(" • ") || "Temel bilgileri hızlıca güncelleyin"}</span>
+            </div>
+          </div>
+          <button className="staff-edit-close" type="button" onClick={onClose} disabled={busy} aria-label="Düzenleme ekranını kapat">
+            <X size={20} aria-hidden="true" />
+          </button>
+        </header>
+
+        <form className="staff-edit-form" onSubmit={onSubmit}>
+          <div className="staff-edit-section">
+            <div className="staff-edit-section-title">
+              <UserRound size={17} aria-hidden="true" />
+              <div>
+                <h3>Kişisel ve görev bilgileri</h3>
+                <p>Personel kartında ve raporlarda görünen temel alanlar</p>
+              </div>
+            </div>
+            <div className="staff-edit-grid">
+              <label className="staff-edit-wide">
+                Ad Soyad
+                <input value={staff.name} onChange={(event) => update({ name: event.target.value })} required autoFocus />
+              </label>
+              <label>
+                Departman
+                <input value={staff.department} onChange={(event) => update({ department: event.target.value })} />
+              </label>
+              <label>
+                Ünvan
+                <input value={staff.title} onChange={(event) => update({ title: event.target.value })} />
+              </label>
+              <label>
+                Telefon
+                <input value={staff.phone ?? ""} onChange={(event) => update({ phone: event.target.value })} inputMode="tel" />
+              </label>
+              <label>
+                T.C. Kimlik No
+                <input value={staff.nationalId ?? ""} onChange={(event) => update({ nationalId: event.target.value })} inputMode="numeric" />
+              </label>
+              <label>
+                SGK Görev Kodu
+                <input value={staff.socialSecurityCode ?? ""} onChange={(event) => update({ socialSecurityCode: event.target.value })} />
+              </label>
+              <label>
+                Çalışma Takvimi / Vardiya
+                <input
+                  value={staff.shiftType ?? ""}
+                  onChange={(event) => update({ shiftType: event.target.value })}
+                  placeholder="Örn. 09:00 - 18:00"
+                />
+              </label>
+            </div>
+          </div>
+
+          <div className="staff-edit-section">
+            <div className="staff-edit-section-title">
+              <CalendarDays size={17} aria-hidden="true" />
+              <div>
+                <h3>Çalışma durumu</h3>
+                <p>İşe giriş, ayrılış ve imza föyü tercihleri</p>
+              </div>
+            </div>
+            <div className="staff-edit-grid staff-edit-employment">
+              <label>
+                İşe Giriş
+                <input type="date" value={staff.startDate ?? ""} onChange={(event) => update({ startDate: event.target.value })} />
+              </label>
+              <label>
+                İşten Çıkış
+                <input type="date" value={staff.endDate ?? ""} onChange={(event) => update({ endDate: event.target.value })} />
+              </label>
+              <div className="staff-edit-switches">
+                <label className="staff-edit-switch">
+                  <input type="checkbox" checked={staff.active} onChange={(event) => update({ active: event.target.checked })} />
+                  <span>
+                    <strong>Aktif personel</strong>
+                    <small>Günlük kayıt ve listelerde göster</small>
+                  </span>
+                </label>
+                <label className="staff-edit-switch">
+                  <input
+                    type="checkbox"
+                    checked={staff.showOnSignatureSheet !== false}
+                    onChange={(event) => update({ showOnSignatureSheet: event.target.checked })}
+                  />
+                  <span>
+                    <strong>İmza föyünde göster</strong>
+                    <small>Yazdırılan günlük imza listesine dahil et</small>
+                  </span>
+                </label>
+                <label className="staff-edit-switch">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(staff.fixedStaff)}
+                    onChange={(event) => update({ fixedStaff: event.target.checked })}
+                  />
+                  <span>
+                    <strong>Sabit personel</strong>
+                    <small>Resmi tatil toplu işlemlerine dahil et</small>
+                  </span>
+                </label>
+              </div>
+            </div>
+          </div>
+
+          <footer className="staff-edit-actions">
+            <button className="secondary-action" type="button" onClick={onClose} disabled={busy}>
+              Vazgeç
+            </button>
+            <button className="primary-action" type="submit" disabled={busy || !staff.name.trim()}>
+              <Save size={18} aria-hidden="true" />
+              {busy ? "Kaydediliyor" : "Değişiklikleri Kaydet"}
+            </button>
+          </footer>
+        </form>
+      </section>
+    </div>
   );
 }
 
