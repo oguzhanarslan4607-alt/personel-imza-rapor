@@ -3338,8 +3338,22 @@ textarea:focus {
   box-shadow: 0 4px 10px rgba(255, 184, 62, 0.22);
 }
 
+.home-person-avatar.is-entitled {
+  background: linear-gradient(145deg, #55c879, #24934a);
+  box-shadow: 0 4px 10px rgba(36, 147, 74, 0.2);
+}
+
 .home-birthday-card .home-card-head > span {
   background: linear-gradient(145deg, #ffbd4d, #f39a31);
+}
+
+.home-entitlement-card .home-card-head > span {
+  background: linear-gradient(145deg, #4fc377, #238c47);
+}
+
+.home-entitlement-card .home-people-list small {
+  color: #31864d;
+  font-weight: 700;
 }
 
 .home-birthday-card .home-people-list small {

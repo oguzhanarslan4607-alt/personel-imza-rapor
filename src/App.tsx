@@ -103,6 +103,7 @@ import {
   calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
+  getAnnualLeaveEligibleStaff,
   getAnnualLeaveEntitlementDate,
   sortProfileHistoryNewestFirst,
 } from "./lib/profile";
@@ -7276,6 +7277,7 @@ function HomeDashboard({
 }) {
   const today = todayIso();
   const upcomingBirthdays = getUpcomingBirthdays(activeStaff, today, 3);
+  const annualLeaveEligibleStaff = getAnnualLeaveEligibleStaff(activeStaff, today);
   const upcomingLeaves = annualLeaveRecords
     .filter((record) => record.status !== "cancelled" && record.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))
@@ -7480,6 +7482,32 @@ function HomeDashboard({
               })}
               {!upcomingLeaves.length && <div className="home-empty">Yaklaşan izin bulunmuyor.</div>}
             </div>
+          </article>
+
+          <article className="home-card home-entitlement-card">
+            <HomeCardHeader icon={CheckCircle2} title="Yıllık İzni Hak Edenler" />
+            <div className="home-people-list">
+              {annualLeaveEligibleStaff.slice(0, 4).map(({ staff: member, entitlementDate, entitlementDays }) => (
+                <button key={member.id} type="button" onClick={() => onOpenProfile(member.id)}>
+                  <span className="home-person-avatar is-entitled">
+                    {member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
+                  </span>
+                  <span>
+                    <strong>{member.name}</strong>
+                    <small>{entitlementDays} gün yıllık izin hakkı</small>
+                  </span>
+                  <time dateTime={entitlementDate}>{formatShortDate(entitlementDate)}</time>
+                </button>
+              ))}
+              {!annualLeaveEligibleStaff.length && (
+                <div className="home-empty">
+                  Bu yıl henüz yıllık izin hakkı kazanan personel yok.
+                </div>
+              )}
+            </div>
+            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("profiles")}>
+              Tümünü gör ({annualLeaveEligibleStaff.length}) <ArrowRight size={16} aria-hidden="true" />
+            </button>
           </article>
 
           <article className="home-card">

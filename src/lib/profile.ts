@@ -1,4 +1,4 @@
-import type { AnnualLeaveRecord } from "../types";
+import type { AnnualLeaveRecord, StaffMember } from "../types";
 
 export type AnnualLeaveYearBalance = {
   year: number;
@@ -50,6 +50,34 @@ export function calculateAnnualEntitlementFromStartDate(
   if (entitlementDate > eligibilityCutoff) return 0;
 
   return calculateAnnualEntitlementForServiceYear(startDate, year);
+}
+
+export function getAnnualLeaveEligibleStaff(
+  staff: StaffMember[],
+  referenceDate: string,
+) {
+  const year = Number(referenceDate.slice(0, 4));
+  if (!year) return [];
+
+  return staff
+    .filter((member) => member.active && Boolean(member.startDate))
+    .flatMap((member) => {
+      const entitlementDate = getAnnualLeaveEntitlementDate(member.startDate, year);
+      const entitlementDays = calculateAnnualEntitlementFromStartDate(
+        member.startDate,
+        year,
+        referenceDate,
+        member.endDate,
+      );
+      if (!entitlementDate || entitlementDays <= 0) return [];
+
+      return [{ staff: member, entitlementDate, entitlementDays }];
+    })
+    .sort(
+      (a, b) =>
+        b.entitlementDate.localeCompare(a.entitlementDate)
+        || a.staff.name.localeCompare(b.staff.name, "tr"),
+    );
 }
 
 export function sortProfileHistoryNewestFirst<T extends { date: string; sortDate: string }>(items: T[]) {

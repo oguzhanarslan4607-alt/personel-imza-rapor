@@ -5,6 +5,7 @@ import {
   calculateAnnualEntitlementFromStartDate,
   calculateAnnualLeaveYearBalances,
   calculateProfileLeaveStats,
+  getAnnualLeaveEligibleStaff,
   getAnnualLeaveEntitlementDate,
   sortProfileHistoryNewestFirst,
 } from "./profile";
@@ -184,5 +185,42 @@ describe("yıllık izin hak ediş tarihi", () => {
       "2023-08-26",
       2026,
     )).toBe(14);
+  });
+});
+
+describe("ana sayfa yıllık izin hak edenler", () => {
+  const staffMember = (
+    id: string,
+    name: string,
+    startDate: string,
+    active = true,
+  ) => ({
+    id,
+    order: 1,
+    name,
+    department: "",
+    title: "",
+    active,
+    startDate,
+  });
+
+  it("yalnızca yıldönümü gelmiş aktif personelleri en yeni hak edişten başlayarak sıralar", () => {
+    const rows = getAnnualLeaveEligibleStaff([
+      staffMember("1", "Bugün Hak Etti", "2025-07-30"),
+      staffMember("2", "Dün Hak Etti", "2020-07-29"),
+      staffMember("3", "Önce Hak Etti", "2011-07-28"),
+      staffMember("4", "Henüz Hak Etmedi", "2025-08-01"),
+      staffMember("5", "Pasif Personel", "2020-01-01", false),
+    ], "2026-07-30");
+
+    expect(rows.map((row) => ({
+      name: row.staff.name,
+      entitlementDate: row.entitlementDate,
+      entitlementDays: row.entitlementDays,
+    }))).toEqual([
+      { name: "Bugün Hak Etti", entitlementDate: "2026-07-30", entitlementDays: 14 },
+      { name: "Dün Hak Etti", entitlementDate: "2026-07-29", entitlementDays: 20 },
+      { name: "Önce Hak Etti", entitlementDate: "2026-07-28", entitlementDays: 26 },
+    ]);
   });
 });
