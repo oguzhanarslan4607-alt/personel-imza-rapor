@@ -274,6 +274,7 @@ function normalizeStaffMember(member: StaffMember): StaffMember {
     phone: member.phone ?? "",
     socialSecurityCode: member.socialSecurityCode ?? "",
     shiftType: member.shiftType ?? "",
+    birthDate: member.birthDate ?? "",
     showOnSignatureSheet: member.showOnSignatureSheet !== false,
     fixedStaff: Boolean(member.fixedStaff),
     startDate: member.startDate ?? "",

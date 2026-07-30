@@ -16,6 +16,7 @@ export type StaffMember = {
   phone?: string;
   socialSecurityCode?: string;
   shiftType?: string;
+  birthDate?: string;
   active: boolean;
   showOnSignatureSheet?: boolean;
   fixedStaff?: boolean;

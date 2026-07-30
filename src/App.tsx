@@ -3,6 +3,7 @@ import {
   ArrowRight,
   ArchiveRestore,
   BarChart3,
+  Cake,
   CalendarCheck,
   CalendarDays,
   CheckCircle2,
@@ -96,6 +97,7 @@ import {
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
+import { getBirthdayTimingLabel, getUpcomingBirthdays } from "./lib/birthday";
 import {
   calculateAnnualEntitlementForServiceYear,
   calculateAnnualEntitlementFromStartDate,
@@ -978,6 +980,7 @@ function getProfileExportStaffDetails(staffMember: StaffMember) {
     { label: "Departman", value: staffMember.department || "-" },
     { label: "Ünvan", value: staffMember.title || "-" },
     { label: "Durum", value: staffMember.active ? "Aktif" : "Pasif" },
+    { label: "Doğum Tarihi", value: staffMember.birthDate || "-" },
     { label: "İşe Giriş", value: staffMember.startDate || "-" },
     { label: "İşten Çıkış", value: staffMember.endDate || "-" },
     { label: "Vardiya", value: staffMember.shiftType || "-" },
@@ -1171,6 +1174,7 @@ function App() {
     phone: "",
     socialSecurityCode: "",
     shiftType: "",
+    birthDate: "",
     startDate: todayIso(),
     endDate: "",
     showOnSignatureSheet: true,
@@ -2500,6 +2504,7 @@ function App() {
       phone: newStaff.phone.trim(),
       socialSecurityCode: newStaff.socialSecurityCode.trim(),
       shiftType: newStaff.shiftType.trim(),
+      birthDate: newStaff.birthDate,
       active: true,
       showOnSignatureSheet: newStaff.showOnSignatureSheet,
       fixedStaff: newStaff.fixedStaff,
@@ -2519,6 +2524,7 @@ function App() {
         phone: "",
         socialSecurityCode: "",
         shiftType: "",
+        birthDate: "",
         startDate: todayIso(),
         endDate: "",
         showOnSignatureSheet: true,
@@ -2557,6 +2563,7 @@ function App() {
         phone: editingStaff.phone?.trim() ?? "",
         socialSecurityCode: editingStaff.socialSecurityCode?.trim() ?? "",
         shiftType: editingStaff.shiftType?.trim() ?? "",
+        birthDate: editingStaff.birthDate ?? "",
         showOnSignatureSheet: editingStaff.showOnSignatureSheet !== false,
         fixedStaff: Boolean(editingStaff.fixedStaff),
         startDate: editingStaff.startDate,
@@ -2594,6 +2601,7 @@ function App() {
         phone = "",
         socialSecurityCode = "",
         shiftType = "",
+        birthDate = "",
       ] = row;
       return {
         id: crypto.randomUUID(),
@@ -2610,6 +2618,7 @@ function App() {
         phone,
         socialSecurityCode,
         shiftType,
+        birthDate,
       } satisfies StaffMember;
     });
 
@@ -4447,6 +4456,10 @@ function App() {
             auditLogs={auditLogs}
             dailyStats={dailyStats}
             onNavigate={setActiveTab}
+            onOpenProfile={(staffId) => {
+              setProfileStaffId(staffId);
+              setActiveTab("profiles");
+            }}
           />
         )}
 
@@ -6046,6 +6059,7 @@ function App() {
                     <p>{[profileStaff.department, profileStaff.title].filter(Boolean).join(" / ") || "Departman ve ünvan bilgisi yok"}</p>
                   </div>
                   <div className="profile-dates">
+                    <span>Doğum tarihi: <strong>{profileStaff.birthDate ? formatDateTr(profileStaff.birthDate) : "-"}</strong></span>
                     <span>İşe giriş: <strong>{profileStaff.startDate || "-"}</strong></span>
                     <span>İşten çıkış: <strong>{profileStaff.endDate || "-"}</strong></span>
                     <span>T.C.: <strong>{profileStaff.nationalId || "-"}</strong></span>
@@ -6461,6 +6475,14 @@ function App() {
                   />
                 </label>
                 <label>
+                  Doğum Tarihi
+                  <input
+                    type="date"
+                    value={newStaff.birthDate}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, birthDate: event.target.value }))}
+                  />
+                </label>
+                <label>
                   İşe Giriş
                   <input
                     type="date"
@@ -6505,7 +6527,7 @@ function App() {
                     value={importText}
                     onChange={(event) => setImportText(event.target.value)}
                     rows={9}
-                    placeholder="Ad Soyad;Departman;Unvan;Ise Giris;Isten Cikis;Imza Foyunde Goster;Sabit Personel;TC Kimlik;Telefon;SGK Gorev Kodu;Vardiya"
+                    placeholder="Ad Soyad;Departman;Unvan;Ise Giris;Isten Cikis;Imza Foyunde Goster;Sabit Personel;TC Kimlik;Telefon;SGK Gorev Kodu;Vardiya;Dogum Tarihi"
                   />
                 </label>
                 <label>
@@ -7135,6 +7157,14 @@ function StaffEditDialog({
                 <input value={staff.title} onChange={(event) => update({ title: event.target.value })} />
               </label>
               <label>
+                Doğum Tarihi
+                <input
+                  type="date"
+                  value={staff.birthDate ?? ""}
+                  onChange={(event) => update({ birthDate: event.target.value })}
+                />
+              </label>
+              <label>
                 Telefon
                 <input value={staff.phone ?? ""} onChange={(event) => update({ phone: event.target.value })} inputMode="tel" />
               </label>
@@ -7233,6 +7263,7 @@ function HomeDashboard({
   auditLogs,
   dailyStats,
   onNavigate,
+  onOpenProfile,
 }: {
   settings: AppSettings;
   adminEmail: string | null;
@@ -7241,8 +7272,10 @@ function HomeDashboard({
   auditLogs: AuditLogRecord[];
   dailyStats: { processed: number; present: number; late: number; absent: number; excused: number };
   onNavigate: (tab: TabKey) => void;
+  onOpenProfile: (staffId: string) => void;
 }) {
   const today = todayIso();
+  const upcomingBirthdays = getUpcomingBirthdays(activeStaff, today, 3);
   const upcomingLeaves = annualLeaveRecords
     .filter((record) => record.status !== "cancelled" && record.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))
@@ -7397,6 +7430,32 @@ function HomeDashboard({
               ))}
               {!recentStaff.length && <div className="home-empty">İşe giriş tarihi bulunan personel yok.</div>}
             </div>
+          </article>
+
+          <article className="home-card home-birthday-card">
+            <HomeCardHeader icon={Cake} title="Yaklaşan Doğum Günleri" />
+            <div className="home-people-list">
+              {upcomingBirthdays.map(({ staff: member, nextBirthday, daysUntil }) => (
+                <button key={member.id} type="button" onClick={() => onOpenProfile(member.id)}>
+                  <span className="home-person-avatar is-birthday">
+                    {member.name.slice(0, 1).toLocaleUpperCase("tr-TR")}
+                  </span>
+                  <span>
+                    <strong>{member.name}</strong>
+                    <small>{getBirthdayTimingLabel(daysUntil)}</small>
+                  </span>
+                  <time dateTime={nextBirthday}>{formatShortDate(nextBirthday)}</time>
+                </button>
+              ))}
+              {!upcomingBirthdays.length && (
+                <div className="home-empty">
+                  Doğum tarihi girilen personeller burada görünecek.
+                </div>
+              )}
+            </div>
+            <button className="home-link home-card-link" type="button" onClick={() => onNavigate("staff")}>
+              Doğum tarihlerini düzenle <ArrowRight size={16} aria-hidden="true" />
+            </button>
           </article>
         </div>
 

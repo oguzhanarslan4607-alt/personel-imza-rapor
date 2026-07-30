@@ -3332,6 +3332,21 @@ textarea:focus {
   background: linear-gradient(145deg, #6a92ff, #356cff);
 }
 
+.home-person-avatar.is-birthday {
+  color: #754b00;
+  background: linear-gradient(145deg, #ffe08a, #ffb83e);
+  box-shadow: 0 4px 10px rgba(255, 184, 62, 0.22);
+}
+
+.home-birthday-card .home-card-head > span {
+  background: linear-gradient(145deg, #ffbd4d, #f39a31);
+}
+
+.home-birthday-card .home-people-list small {
+  color: #a36a12;
+  font-weight: 700;
+}
+
 .home-people-list button > span:nth-child(2) {
   display: grid;
   min-width: 0;
