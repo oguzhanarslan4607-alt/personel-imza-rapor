@@ -417,6 +417,54 @@ button {
   font-weight: 800;
 }
 
+.departed-unpaid-card {
+  overflow: hidden;
+  border-color: #f0c98b;
+  box-shadow: 0 10px 28px rgba(146, 95, 25, 0.08);
+}
+
+.departed-unpaid-card .panel-heading {
+  flex-wrap: wrap;
+  background: #fffaf0;
+}
+
+.departed-card-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0 0 5px;
+  color: #a16207;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.departed-card-stats {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.panel-heading .departed-card-stats span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  min-width: 82px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid #f2d5a7;
+  border-radius: 8px;
+  color: #8a642b;
+  background: #fff;
+  font-size: 11px;
+}
+
+.departed-card-stats strong {
+  color: #8f5708;
+  font-size: 18px;
+}
+
 .entitlement-note {
   display: flex;
   align-items: center;
@@ -1266,6 +1314,35 @@ button:disabled {
   background: #eef2f7;
   font-size: 8pt;
   font-weight: 900;
+}
+
+.grouped-leave-report-section {
+  margin-top: 5mm;
+  break-inside: avoid;
+}
+
+.grouped-leave-report-section h2 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4mm;
+  margin: 0;
+  padding: 2.5mm 3mm;
+  border: 1px solid #9aa8b6;
+  border-bottom: 0;
+  color: #1f3c66;
+  background: #edf4ff;
+  font-size: 11pt;
+}
+
+.grouped-leave-report-section h2 span {
+  color: #52657f;
+  font-size: 8pt;
+}
+
+.grouped-leave-report-section.is-departed h2 {
+  color: #7c4a03;
+  background: #fff5dd;
 }
 
 .app-shell {
@@ -3789,6 +3866,19 @@ textarea:focus {
 :root[data-theme="dark"] .home-entitlement-table article,
 :root[data-theme="dark"] .home-entitlement-empty {
   border-color: #334155;
+}
+
+:root[data-theme="dark"] .departed-unpaid-card {
+  border-color: #76582d;
+}
+
+:root[data-theme="dark"] .departed-unpaid-card .panel-heading {
+  background: #2a241c;
+}
+
+:root[data-theme="dark"] .panel-heading .departed-card-stats span {
+  border-color: #76582d;
+  background: var(--panel);
 }
 
 :root[data-theme="dark"] .home-card-head h2,
