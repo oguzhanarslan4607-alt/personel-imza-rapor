@@ -98,6 +98,7 @@ import {
 } from "./lib/incapacity";
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
+import { getSignatureSheetExplanation } from "./lib/signatureSheet";
 import { getBirthdayTimingLabel, getUpcomingBirthdays } from "./lib/birthday";
 import {
   calculateAnnualEntitlementForServiceYear,
@@ -1948,6 +1949,16 @@ function App() {
   const unpaidLeaveRecords = useMemo(
     () => annualLeaveRecords.filter((record) => record.leaveType === "unpaid"),
     [annualLeaveRecords],
+  );
+  const signatureExplanations = useMemo(
+    () =>
+      new Map(
+        signatureStaff.map((member) => [
+          member.id,
+          getSignatureSheetExplanation(member.id, selectedDate, annualLeaveRecords, incapacityReports),
+        ]),
+      ),
+    [annualLeaveRecords, incapacityReports, selectedDate, signatureStaff],
   );
   const unpaidLeaveRowsForYear = useMemo(
     () => unpaidLeaveRecords.filter((record) => record.year === unpaidLeaveYear),
@@ -4774,6 +4785,7 @@ function App() {
                   pageCount={printPages.length}
                   selectedDate={selectedDate}
                   settings={settings}
+                  explanations={signatureExplanations}
                   preview
                 />
               ))}
@@ -6833,6 +6845,7 @@ function App() {
               pageCount={printPages.length}
               selectedDate={selectedDate}
               settings={settings}
+              explanations={signatureExplanations}
             />
           ))
         )}
@@ -8501,6 +8514,7 @@ function SheetPage({
   pageCount,
   selectedDate,
   settings,
+  explanations,
   preview = false,
 }: {
   staff: StaffMember[];
@@ -8509,6 +8523,7 @@ function SheetPage({
   pageCount: number;
   selectedDate: string;
   settings: AppSettings;
+  explanations: Map<string, string>;
   preview?: boolean;
 }) {
   return (
@@ -8552,7 +8567,7 @@ function SheetPage({
               <td>{member.department}</td>
               <td>{settings.shiftStart}</td>
               <td />
-              <td />
+              <td>{explanations.get(member.id)}</td>
             </tr>
           ))}
           {pageIndex === pageCount - 1 &&
