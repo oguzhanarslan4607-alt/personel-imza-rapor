@@ -1968,10 +1968,6 @@ function App() {
     () => unpaidLeaveRowsForYear.filter((record) => staffById.get(record.staffId)?.active !== false),
     [staffById, unpaidLeaveRowsForYear],
   );
-  const departedUnpaidLeaveRowsForYear = useMemo(
-    () => unpaidLeaveRowsForYear.filter((record) => staffById.get(record.staffId)?.active === false),
-    [staffById, unpaidLeaveRowsForYear],
-  );
   const unpaidLeaveSummaries = useMemo(() => {
     const summary = new Map<string, { staff: StaffMember; planned: number; completed: number; cancelled: number }>();
 
@@ -2002,14 +1998,6 @@ function App() {
   const unpaidLeaveStats = useMemo(
     () => getUnpaidLeaveRecordStats(activeUnpaidLeaveRowsForYear),
     [activeUnpaidLeaveRowsForYear],
-  );
-  const departedUnpaidLeaveStats = useMemo(
-    () => getUnpaidLeaveRecordStats(departedUnpaidLeaveRowsForYear),
-    [departedUnpaidLeaveRowsForYear],
-  );
-  const departedUnpaidLeaveGroupsForYear = useMemo(
-    () => groupLeaveRecords(departedUnpaidLeaveRowsForYear, staffById),
-    [departedUnpaidLeaveRowsForYear, staffById],
   );
   const unpaidLeaveRowsForMonth = useMemo(() => {
     return unpaidLeaveRecords.filter(
@@ -5991,7 +5979,10 @@ function App() {
                         <option key={member.id} value={member.id}>{member.name}</option>
                       ))}
                       {staff
-                        .filter((member) => !member.active && unpaidLeaveRecords.some((record) => record.staffId === member.id))
+                        .filter((member) =>
+                          !member.active &&
+                          departedUnpaidLeaveGroupsForMonth.some((group) => group.staffId === member.id),
+                        )
                         .map((member) => (
                           <option key={member.id} value={member.id}>{member.name} — {getStaffDepartureLabel(member)}</option>
                         ))}
@@ -6016,7 +6007,7 @@ function App() {
               />
             </section>
 
-            {departedUnpaidLeaveGroupsForYear.length > 0 && (
+            {departedUnpaidLeaveGroupsForMonth.length > 0 && (
               <section className="data-panel departed-unpaid-card">
                 <div className="panel-heading">
                   <div>
@@ -6024,16 +6015,16 @@ function App() {
                       <ArchiveRestore size={16} aria-hidden="true" />
                       Arşiv kayıtları
                     </p>
-                    <h2>{unpaidLeaveYear} İşten Ayrılmış Personel Ücretsiz İzinleri</h2>
-                    <span>Güncel çalışanlardan ayrı tutulur; kayıtlar düzenlenebilir ve raporlarda ayrı bölümde gösterilir</span>
+                    <h2>{formatMonthTr(unpaidLeaveReportMonth)} İşten Ayrılmış Personel Ücretsiz İzinleri</h2>
+                    <span>Yalnızca seçili ayın kayıtları gösterilir; kayıtlar düzenlenebilir ve raporlarda ayrı bölümde yer alır</span>
                   </div>
                   <div className="departed-card-stats" aria-label="İşten ayrılmış personel ücretsiz izin özeti">
-                    <span><strong>{departedUnpaidLeaveStats.records}</strong> kayıt</span>
-                    <span><strong>{departedUnpaidLeaveStats.completed + departedUnpaidLeaveStats.planned}</strong> gün</span>
+                    <span><strong>{departedUnpaidLeaveReportStats.records}</strong> kayıt</span>
+                    <span><strong>{departedUnpaidLeaveReportStats.completed + departedUnpaidLeaveReportStats.planned}</strong> gün</span>
                   </div>
                 </div>
                 <UnpaidLeaveGroupsTable
-                  groups={departedUnpaidLeaveGroupsForYear}
+                  groups={departedUnpaidLeaveGroupsForMonth}
                   staffById={staffById}
                   emptyText="İşten ayrılmış personel için ücretsiz izin kaydı bulunmuyor."
                   onEdit={handleEditUnpaidLeave}
