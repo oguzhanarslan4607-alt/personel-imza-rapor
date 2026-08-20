@@ -5283,12 +5283,12 @@ function App() {
 
                 <section className="report-comparison-grid" aria-label="Dönem karşılaştırması">
                   {[
-                    { label: "Dönem Sonu Personel", current: workforceReport.closing, month: workforceClosingMonthDelta, year: workforceClosingYearDelta },
-                    { label: "İşe Alınan", current: workforceReport.hires, month: getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires), year: getMetricDelta(workforceReport.hires, previousYearWorkforce.hires) },
-                    { label: "İşten Çıkan", current: workforceReport.exits, month: getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits), year: getMetricDelta(workforceReport.exits, previousYearWorkforce.exits) },
-                    { label: "İşe Gelinen Gün", current: attendanceReport.attendedDays, month: attendanceMonthDelta, year: attendanceYearDelta },
+                    { label: "Dönem Sonu Personel", current: workforceReport.closing, month: workforceClosingMonthDelta, year: workforceClosingYearDelta, tone: "blue" },
+                    { label: "İşe Alınan", current: workforceReport.hires, month: getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires), year: getMetricDelta(workforceReport.hires, previousYearWorkforce.hires), tone: "green" },
+                    { label: "İşten Çıkan", current: workforceReport.exits, month: getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits), year: getMetricDelta(workforceReport.exits, previousYearWorkforce.exits), tone: "red" },
+                    { label: "İşe Gelinen Gün", current: attendanceReport.attendedDays, month: attendanceMonthDelta, year: attendanceYearDelta, tone: "purple" },
                   ].map((item) => (
-                    <article className="report-comparison-card" key={item.label}>
+                    <article className={`report-comparison-card tone-${item.tone}`} key={item.label}>
                       <div className="report-comparison-card-head"><Activity size={16} aria-hidden="true" /><span>{item.label}</span></div>
                       <strong>{item.current}</strong>
                       <small className={item.month.difference < 0 ? "is-negative" : item.month.difference > 0 ? "is-positive" : ""}>

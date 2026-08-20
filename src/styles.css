@@ -618,8 +618,8 @@ button:disabled {
   border: 1px solid var(--line);
   border-top: 3px solid #8b99aa;
   border-radius: 11px;
-  background: #fff;
-  box-shadow: 0 5px 16px rgba(45, 70, 110, 0.05);
+  background: linear-gradient(145deg, #f7f9fc, #fff);
+  box-shadow: 0 8px 20px rgba(45, 70, 110, 0.07);
 }
 
 .metric-head {
@@ -664,19 +664,31 @@ button:disabled {
 
 .metric.tone-green {
   border-top-color: var(--teal);
+  background: linear-gradient(145deg, #e9fbf4, #fafffd);
 }
+
+.metric.tone-green .metric-head > i { color: #087a55; background: #c9f3e2; }
 
 .metric.tone-amber {
   border-top-color: var(--amber);
+  background: linear-gradient(145deg, #fff3d8, #fffcf5);
 }
+
+.metric.tone-amber .metric-head > i { color: #9a5a00; background: #ffe3a3; }
 
 .metric.tone-red {
   border-top-color: var(--red);
+  background: linear-gradient(145deg, #ffe7e5, #fffafa);
 }
+
+.metric.tone-red .metric-head > i { color: #b42318; background: #ffcfc9; }
 
 .metric.tone-blue {
   border-top-color: var(--blue);
+  background: linear-gradient(145deg, #e9f0ff, #fafdff);
 }
+
+.metric.tone-blue .metric-head > i { color: #2456c4; background: #ccdcff; }
 
 .data-panel {
   min-width: 0;
@@ -1895,6 +1907,14 @@ button:disabled {
   box-shadow: 0 5px 16px rgba(45, 70, 110, 0.045);
 }
 
+.report-comparison-card.tone-blue { border-top: 4px solid var(--blue); background: linear-gradient(145deg, #eaf1ff, #fff); }
+.report-comparison-card.tone-green { border-top: 4px solid var(--teal); background: linear-gradient(145deg, #e8faf3, #fff); }
+.report-comparison-card.tone-red { border-top: 4px solid var(--red); background: linear-gradient(145deg, #ffe9e7, #fff); }
+.report-comparison-card.tone-purple { border-top: 4px solid #7c5ce5; background: linear-gradient(145deg, #f0ebff, #fff); }
+.report-comparison-card.tone-green .report-comparison-card-head { color: #087a55; }
+.report-comparison-card.tone-red .report-comparison-card-head { color: #b42318; }
+.report-comparison-card.tone-purple .report-comparison-card-head { color: #6745c7; }
+
 .report-comparison-card-head {
   display: flex;
   align-items: center;
@@ -1955,6 +1975,15 @@ button:disabled {
 
 .management-status.is-good { color: #127642; background: #dff7e9; }
 .management-status.is-warning { color: #9a3412; background: #ffedd5; }
+
+.warning-panel-card:nth-child(1) { border-color: #c9d8f8; background: linear-gradient(145deg, #edf3ff, #fff); }
+.warning-panel-card:nth-child(2) { border-color: #f4c7c2; background: linear-gradient(145deg, #ffebe9, #fff); }
+.warning-panel-card:nth-child(3) { border-color: #f1d39d; background: linear-gradient(145deg, #fff3db, #fff); }
+.warning-panel-card:nth-child(4) { border-color: #c8e7d9; background: linear-gradient(145deg, #e9faf2, #fff); }
+.warning-panel-card:nth-child(1) strong { color: var(--blue); }
+.warning-panel-card:nth-child(2) strong { color: var(--red); }
+.warning-panel-card:nth-child(3) strong { color: #a55d00; }
+.warning-panel-card:nth-child(4) strong { color: #087a55; }
 
 .report-visual-grid {
   display: grid;
