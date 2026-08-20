@@ -1724,6 +1724,259 @@ button:disabled {
   background: #edf2f7;
 }
 
+.report-view-tabs {
+  display: flex;
+  gap: 7px;
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fff;
+}
+
+.report-view-tabs button {
+  min-height: 38px;
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 7px;
+  color: var(--muted);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 900;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.report-view-tabs button:hover,
+.report-view-tabs button.is-active {
+  color: #fff;
+  background: var(--blue);
+}
+
+.report-narrative {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) auto;
+  gap: 18px;
+  align-items: center;
+  padding: 18px;
+  border: 1px solid #cbdafa;
+  border-left: 5px solid var(--blue);
+  border-radius: 9px;
+  background: #f5f8ff;
+}
+
+.report-narrative > div:first-child {
+  display: grid;
+  gap: 5px;
+}
+
+.report-narrative span,
+.report-narrative small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.report-narrative strong {
+  color: var(--ink);
+  font-size: 18px;
+}
+
+.report-narrative-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.report-narrative-stats span {
+  padding: 8px 10px;
+  border: 1px solid #dbe4f5;
+  border-radius: 7px;
+  background: #fff;
+}
+
+.report-narrative-stats b {
+  color: var(--blue);
+}
+
+.report-two-column {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.report-person-list {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  max-height: 360px;
+  overflow-y: auto;
+}
+
+.report-person-list button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 44px;
+  padding: 9px 11px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--text);
+  background: #fff;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.report-person-list button:hover {
+  border-color: #aac1fb;
+  background: #f5f8ff;
+}
+
+.report-person-list button strong,
+.report-person-list button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.report-person-list button span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.movement-chip {
+  display: inline-flex;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.movement-chip.is-hire {
+  color: #08705f;
+  background: #e7f8f3;
+}
+
+.movement-chip.is-exit {
+  color: #a33a32;
+  background: #fff0ee;
+}
+
+.positive-cell {
+  color: #08705f;
+  font-weight: 900;
+}
+
+.negative-cell {
+  color: #b33e35;
+  font-weight: 900;
+}
+
+.workforce-trend-panel {
+  display: grid;
+}
+
+.workforce-chart-legend {
+  display: flex;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 900;
+}
+
+.workforce-chart-legend span::before {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 5px;
+  border-radius: 2px;
+  content: "";
+}
+
+.workforce-chart-legend .is-hire::before {
+  background: var(--teal);
+}
+
+.workforce-chart-legend .is-exit::before {
+  background: var(--red);
+}
+
+.workforce-trend-chart {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(54px, 1fr));
+  gap: 8px;
+  min-height: 230px;
+  padding: 18px;
+  overflow-x: auto;
+}
+
+.workforce-month {
+  display: grid;
+  grid-template-rows: 1fr auto auto;
+  gap: 5px;
+  align-items: end;
+  justify-items: center;
+  min-width: 54px;
+  height: 190px;
+}
+
+.workforce-bar-area {
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 135px;
+  padding: 0 6px;
+  border-bottom: 1px solid var(--line);
+}
+
+.workforce-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  width: 15px;
+  min-height: 3px;
+  border-radius: 4px 4px 1px 1px;
+}
+
+.workforce-bar.is-hire {
+  background: var(--teal);
+}
+
+.workforce-bar.is-exit {
+  background: var(--red);
+}
+
+.workforce-bar b {
+  margin-top: -17px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.workforce-month > strong {
+  color: var(--blue);
+  font-size: 13px;
+}
+
+.workforce-month > small {
+  color: var(--muted);
+  font-size: 10px;
+  font-weight: 900;
+  text-transform: capitalize;
+}
+
+.department-comparison-table th,
+.department-comparison-table td {
+  white-space: nowrap;
+}
+
 .chart-grid {
   display: grid;
   grid-template-columns: minmax(360px, 1.4fr) minmax(280px, 0.9fr) minmax(260px, 0.8fr);
@@ -2080,8 +2333,14 @@ button:disabled {
   .profile-hero,
   .dashboard-panel,
   .chart-grid,
-  .warning-panel-grid {
+  .warning-panel-grid,
+  .report-two-column,
+  .report-narrative {
     grid-template-columns: 1fr;
+  }
+
+  .report-narrative-stats {
+    justify-content: flex-start;
   }
 
   .metric-row {
@@ -3870,6 +4129,18 @@ textarea:focus {
 
 :root[data-theme="dark"] .departed-unpaid-card {
   border-color: #76582d;
+}
+
+:root[data-theme="dark"] .report-view-tabs,
+:root[data-theme="dark"] .report-person-list button,
+:root[data-theme="dark"] .report-narrative-stats span {
+  border-color: #334155;
+  background: var(--panel);
+}
+
+:root[data-theme="dark"] .report-narrative {
+  border-color: #31518e;
+  background: #17233a;
 }
 
 :root[data-theme="dark"] .departed-unpaid-card .panel-heading {

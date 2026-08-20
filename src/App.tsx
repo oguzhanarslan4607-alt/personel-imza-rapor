@@ -99,6 +99,14 @@ import {
 import { getStaffDepartureLabel, shouldIncludeUnpaidLeaveInMonth } from "./lib/staffDeparture";
 import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
 import { getSignatureSheetExplanation } from "./lib/signatureSheet";
+import {
+  getAttendanceSummary,
+  getDepartmentComparisonRows,
+  getLeaveReportSummary,
+  getMonthlyWorkforceTrend,
+  getWorkforceSummary,
+  type MonthlyWorkforceTrend,
+} from "./lib/hrReports";
 import { getBirthdayTimingLabel, getUpcomingBirthdays } from "./lib/birthday";
 import {
   calculateAnnualEntitlementForServiceYear,
@@ -147,6 +155,7 @@ type TabKey =
   | "settings";
 type AccessState = "idle" | "checking" | "allowed" | "denied";
 type PrintMode = "signature" | "holidayWork" | "incapacity" | "annualLeave" | "unpaidLeave" | "hourlyLeave";
+type ReportView = "overview" | "movements" | "attendance" | "leave" | "departments";
 type DraftRecord = {
   checkInTime: string;
   status: AttendanceStatus | "";
@@ -657,6 +666,13 @@ function uniqueValues(values: string[]) {
 function formatMonthTr(month: string) {
   if (!month) return "";
   return new Intl.DateTimeFormat("tr-TR", { month: "long", year: "numeric" }).format(new Date(`${month}-01T12:00:00`));
+}
+
+function formatDurationMinutes(minutes: number) {
+  const hours = Math.floor(minutes / 60);
+  const remainingMinutes = minutes % 60;
+  if (!hours) return `${remainingMinutes} dk`;
+  return remainingMinutes ? `${hours} sa ${remainingMinutes} dk` : `${hours} sa`;
 }
 
 function getMonthEndIso(month: string) {
@@ -1172,6 +1188,7 @@ function App() {
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
+  const [reportView, setReportView] = useState<ReportView>("overview");
   const [profileStaffId, setProfileStaffId] = useState(
     () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
@@ -1352,25 +1369,6 @@ function App() {
     );
   }, [activeStaff, drafts, incapacityReports, selectedDate, settings]);
   const dailyEmptyCount = Math.max(0, activeStaff.length - dailyStats.processed);
-
-  const reportStats = useMemo(() => {
-    const filteredRows = reportRows.filter((record) => {
-      const member = staffById.get(record.staffId);
-      return (
-        (reportStaffId === "all" || record.staffId === reportStaffId) &&
-        (reportDepartment === "all" || member?.department === reportDepartment)
-      );
-    });
-
-    return filteredRows.reduce(
-      (stats, record) => {
-        stats.total += 1;
-        stats[record.status] += 1;
-        return stats;
-      },
-      { total: 0, present: 0, late: 0, absent: 0, excused: 0 },
-    );
-  }, [reportDepartment, reportRows, reportStaffId, staffById]);
 
   const filteredReportRows = useMemo(() => {
     return reportRows.filter((record) => {
@@ -1785,6 +1783,80 @@ function App() {
         .sort((a, b) => b.absent - a.absent || b.late - a.late || b.lateMinutes - a.lateMinutes)
         .slice(0, 5),
     [reportSummaryRows],
+  );
+  const reportStaffFilter = useMemo(
+    () => ({ department: reportDepartment, staffId: reportStaffId }),
+    [reportDepartment, reportStaffId],
+  );
+  const reportScopedStaffIds = useMemo(
+    () =>
+      new Set(
+        staff
+          .filter(
+            (member) =>
+              (reportDepartment === "all" || member.department === reportDepartment) &&
+              (reportStaffId === "all" || member.id === reportStaffId),
+          )
+          .map((member) => member.id),
+      ),
+    [reportDepartment, reportStaffId, staff],
+  );
+  const workforceReport = useMemo(
+    () => getWorkforceSummary(staff, reportStart, reportEnd, reportStaffFilter),
+    [reportEnd, reportStaffFilter, reportStart, staff],
+  );
+  const attendanceReport = useMemo(
+    () => getAttendanceSummary(filteredReportRows, settings.shiftStart),
+    [filteredReportRows, settings.shiftStart],
+  );
+  const leaveReport = useMemo(
+    () =>
+      getLeaveReportSummary(
+        annualLeaveRecords,
+        incapacityReports,
+        hourlyLeaveRecords,
+        reportStart,
+        reportEnd,
+        reportScopedStaffIds,
+      ),
+    [annualLeaveRecords, hourlyLeaveRecords, incapacityReports, reportEnd, reportScopedStaffIds, reportStart],
+  );
+  const workforceTrendRows = useMemo(
+    () => getMonthlyWorkforceTrend(staff, reportEnd, reportStaffFilter),
+    [reportEnd, reportStaffFilter, staff],
+  );
+  const departmentComparisonRows = useMemo(
+    () =>
+      getDepartmentComparisonRows(
+        staff,
+        reportRows,
+        annualLeaveRecords,
+        incapacityReports,
+        hourlyLeaveRecords,
+        reportStart,
+        reportEnd,
+        settings.shiftStart,
+        reportStaffFilter,
+      ),
+    [
+      annualLeaveRecords,
+      hourlyLeaveRecords,
+      incapacityReports,
+      reportEnd,
+      reportRows,
+      reportStaffFilter,
+      reportStart,
+      settings.shiftStart,
+      staff,
+    ],
+  );
+  const punctualReportStaff = useMemo(
+    () =>
+      attendanceReport.punctualStaffIds
+        .map((staffId) => staffById.get(staffId))
+        .filter((member): member is StaffMember => Boolean(member))
+        .sort((a, b) => a.name.localeCompare(b.name, "tr")),
+    [attendanceReport.punctualStaffIds, staffById],
   );
   const incapacityRowsForMonth = useMemo(() => {
     const monthStart = `${incapacityReportMonth}-01`;
@@ -4027,10 +4099,74 @@ function App() {
         row.lateMinutes,
       ]),
     ];
+    const workforceRows: Array<Array<string | number>> = [
+      ["Gösterge", "Değer"],
+      ["Dönem Başı Personel", workforceReport.opening],
+      ["İşe Alınan Personel", workforceReport.hires],
+      ["İşten Çıkan Personel", workforceReport.exits],
+      ["Dönem Sonu Personel", workforceReport.closing],
+      ["Net Değişim", workforceReport.net],
+      ["Ortalama Personel", workforceReport.average],
+      ["Devir Oranı (%)", workforceReport.turnoverRate],
+      ["Eksik Giriş / Çıkış Tarihi", workforceReport.missingDates],
+    ];
+    const movementRows: Array<Array<string | number>> = [
+      ["Tarih", "Hareket", "Personel", "Departman", "Ünvan"],
+      ...workforceReport.movements.map((row) => [
+        row.date,
+        row.kind === "hire" ? "İşe alındı" : "İşten çıktı",
+        row.staff.name,
+        row.staff.department,
+        row.staff.title,
+      ]),
+    ];
+    const attendanceOverviewRows: Array<Array<string | number>> = [
+      ["Gösterge", "Değer"],
+      ["Giriş Kaydı Olan Personel", attendanceReport.uniqueCheckIns],
+      ["Toplam İşe Gelinen Gün", attendanceReport.attendedDays],
+      ["Geç Kalan Personel", attendanceReport.latePeople],
+      ["Geç Kalınan Gün", attendanceReport.lateDays],
+      ["Gelmeyen Personel", attendanceReport.absentPeople],
+      ["Gelinmeyen Gün", attendanceReport.absentDays],
+      ["İzinli Gün", attendanceReport.excusedDays],
+      ["Toplam Gecikme (Dk)", attendanceReport.totalLateMinutes],
+      ["Ortalama Gecikme (Dk)", attendanceReport.averageLateMinutes],
+    ];
+    const leaveRows: Array<Array<string | number>> = [
+      ["İzin / Rapor", "Personel", "Kayıt", "Gün", "Dakika"],
+      ...leaveReport.categories.map((row) => [row.label, row.people, row.records, row.days, row.minutes]),
+    ];
+    const departmentRows: Array<Array<string | number>> = [
+      ["Departman", "Dönem Başı", "İşe Alınan", "İşten Çıkan", "Dönem Sonu", "Net", "Devir %", "Giriş Yapan", "Gelinen Gün", "Geç", "Gelmedi", "İzin/Rapor Günü"],
+      ...departmentComparisonRows.map((row) => [
+        row.department,
+        row.opening,
+        row.hires,
+        row.exits,
+        row.closing,
+        row.net,
+        row.turnoverRate,
+        row.uniqueCheckIns,
+        row.attendedDays,
+        row.lateDays,
+        row.absentDays,
+        row.leaveDays,
+      ]),
+    ];
+    const trendRows: Array<Array<string | number>> = [
+      ["Ay", "Dönem Başı", "İşe Alınan", "İşten Çıkan", "Dönem Sonu", "Net", "Devir %"],
+      ...workforceTrendRows.map((row) => [row.month, row.opening, row.hires, row.exits, row.closing, row.net, row.turnoverRate]),
+    ];
     const personPart = reportStaffId === "all" ? "tum-personel" : staffById.get(reportStaffId)?.name ?? "personel";
     downloadExcelFile(`personel-rapor-${personPart}-${reportStart}-${reportEnd}.xls`, [
+      { title: "Genel Bakış", rows: workforceRows },
+      { title: "Personel Hareketleri", rows: movementRows },
+      { title: "Devamlılık Göstergeleri", rows: attendanceOverviewRows },
       { title: "Aylık Özet", rows: summaryRows },
       { title: "Detay Kayıtları", rows: detailRows },
+      { title: "İzin ve Raporlar", rows: leaveRows },
+      { title: "Departman Karşılaştırması", rows: departmentRows },
+      { title: "Son 12 Ay Personel Hareketi", rows: trendRows },
     ]);
   }
 
@@ -4822,7 +4958,7 @@ function App() {
                 <CalendarDays size={18} aria-hidden="true" />
                 Bu Ay
               </button>
-              <button className="secondary-action" onClick={handleExportExcel} disabled={!filteredReportRows.length}>
+              <button className="secondary-action" onClick={handleExportExcel} disabled={!staff.length}>
                 <FileSpreadsheet size={18} aria-hidden="true" />
                 Excel
               </button>
@@ -4832,166 +4968,217 @@ function App() {
               </button>
             </section>
 
-            <section className="metric-row" aria-label="Rapor özeti">
-              <Metric label="Kayıt" value={reportStats.total} />
-              <Metric label="Geldi" value={reportStats.present} tone="green" />
-              <Metric label="Geç" value={reportStats.late} tone="amber" />
-              <Metric label="Gelmedi" value={reportStats.absent} tone="red" />
-              <Metric label="İzinli" value={reportStats.excused} tone="blue" />
+            <section className="report-view-tabs" aria-label="Rapor bölümleri">
+              {([
+                ["overview", "Genel Bakış"],
+                ["movements", "Personel Hareketleri"],
+                ["attendance", "Devamlılık"],
+                ["leave", "İzin ve Raporlar"],
+                ["departments", "Departman Karşılaştırması"],
+              ] as Array<[ReportView, string]>).map(([key, label]) => (
+                <button key={key} className={reportView === key ? "is-active" : ""} onClick={() => setReportView(key)}>
+                  {label}
+                </button>
+              ))}
             </section>
 
-            <ReportCharts
-              dailyTrendRows={dailyTrendRows}
-              departmentRows={departmentReportRows}
-              topAbsentRows={topAbsentRows}
-              onSelectStaff={setSelectedStaffId}
-            />
+            {reportView === "overview" && (
+              <>
+                <section className="metric-row report-workforce-metrics" aria-label="Personel hareketleri özeti">
+                  <Metric label="Dönem Başı" value={workforceReport.opening} />
+                  <Metric label="İşe Alınan" value={workforceReport.hires} tone="green" />
+                  <Metric label="İşten Çıkan" value={workforceReport.exits} tone="red" />
+                  <Metric label="Dönem Sonu" value={workforceReport.closing} tone="blue" />
+                  <Metric label="Net Değişim" value={workforceReport.net} tone={workforceReport.net < 0 ? "red" : "green"} />
+                  <Metric label="Devir Oranı" value={workforceReport.turnoverRate} suffix="%" tone="amber" />
+                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="blue" />
+                </section>
 
-            {selectedPersonSummary && (
-              <section className="person-card">
-                <div>
-                  <span>Kişi Karnesi</span>
-                  <strong>{selectedPersonSummary.staff.name}</strong>
-                  <small>{[selectedPersonSummary.staff.department, selectedPersonSummary.staff.title].filter(Boolean).join(" / ")}</small>
-                </div>
-                <Metric label="Toplam Gecikme" value={selectedPersonSummary.lateMinutes} tone="amber" />
-                <Metric label="Geç Gün" value={selectedPersonSummary.late} tone="amber" />
-                <Metric label="Gelmedi" value={selectedPersonSummary.absent} tone="red" />
-              </section>
+                <section className="report-narrative" aria-label="Dönem özeti">
+                  <div>
+                    <span>{reportDepartment === "all" ? "Tüm şirket" : reportDepartment}</span>
+                    <strong>
+                      Bu dönemde {workforceReport.hires} personel işe alındı, {workforceReport.exits} personel işten çıktı.
+                    </strong>
+                    <small>
+                      Net değişim {workforceReport.net > 0 ? "+" : ""}{workforceReport.net}; dönem sonu personel sayısı {workforceReport.closing}.
+                    </small>
+                  </div>
+                  <div className="report-narrative-stats">
+                    <span><b>{attendanceReport.attendedDays}</b> işe gelinen gün</span>
+                    <span><b>{attendanceReport.absentDays}</b> gelinmeyen gün</span>
+                    <span><b>{leaveReport.totalDays}</b> izin/rapor günü</span>
+                  </div>
+                </section>
+
+                <WorkforceTrendChart rows={workforceTrendRows} />
+
+                <section className="warning-panel-grid" aria-label="Yönetim uyarıları">
+                  <div className="warning-panel-card">
+                    <span>Eksik Personel Tarihi</span>
+                    <strong>{workforceReport.missingDates}</strong>
+                    <small>Giriş tarihi veya pasif personelde çıkış tarihi eksik</small>
+                  </div>
+                  <div className="warning-panel-card">
+                    <span>Aktif Rapor</span>
+                    <strong>{incapacityStats.active}</strong>
+                    <small>İş göremezlik ekranında takip edilir</small>
+                  </div>
+                  <div className="warning-panel-card">
+                    <span>Yaklaşan İzin</span>
+                    <strong>{upcomingAnnualLeaves.length}</strong>
+                    <small>{upcomingAnnualLeaves[0] ? `${upcomingAnnualLeaves[0].startDate} - ${staffById.get(upcomingAnnualLeaves[0].staffId)?.name ?? ""}` : "14 gün içinde yok"}</small>
+                  </div>
+                  <div className="warning-panel-card">
+                    <span>Az Kalan İzin</span>
+                    <strong>{lowAnnualLeaveRows.length}</strong>
+                    <small>{lowAnnualLeaveRows[0] ? `${lowAnnualLeaveRows[0].staff.name}: ${lowAnnualLeaveRows[0].remaining} gün` : "Kritik personel yok"}</small>
+                  </div>
+                </section>
+              </>
             )}
 
-            <section className="warning-panel-grid" aria-label="Uyarı paneli">
-              <div className="warning-panel-card">
-                <span>Gelmeyen</span>
-                <strong>{warningRows.length}</strong>
-                <small>{warningRows.length ? warningRows.slice(0, 3).map((row) => row.staff.name).join(", ") : "Seçili aralıkta yok"}</small>
-              </div>
-              <div className="warning-panel-card">
-                <span>Aktif Rapor</span>
-                <strong>{incapacityStats.active}</strong>
-                <small>İş göremezlik ekranında takip edilir</small>
-              </div>
-              <div className="warning-panel-card">
-                <span>Yaklaşan İzin</span>
-                <strong>{upcomingAnnualLeaves.length}</strong>
-                <small>
-                  {upcomingAnnualLeaves[0]
-                    ? `${upcomingAnnualLeaves[0].startDate} - ${staffById.get(upcomingAnnualLeaves[0].staffId)?.name ?? ""}`
-                    : "14 gün içinde yok"}
-                </small>
-              </div>
-              <div className="warning-panel-card">
-                <span>Az Kalan İzin</span>
-                <strong>{lowAnnualLeaveRows.length}</strong>
-                <small>{lowAnnualLeaveRows[0] ? `${lowAnnualLeaveRows[0].staff.name}: ${lowAnnualLeaveRows[0].remaining} gün` : "Kritik personel yok"}</small>
-              </div>
-            </section>
-
-            {warningRows.length > 0 && (
-              <section className="alert-row">
-                <div className="alert-card warning-alert">
-                  <TriangleAlert size={18} aria-hidden="true" />
-                  Bu aralıkta gelmeyen personel: {warningRows.map((row) => row.staff.name).join(", ")}
-                </div>
-              </section>
+            {reportView === "movements" && (
+              <>
+                <section className="metric-row" aria-label="Personel hareketleri">
+                  <Metric label="Dönem Başı" value={workforceReport.opening} />
+                  <Metric label="İşe Alınan" value={workforceReport.hires} tone="green" />
+                  <Metric label="İşten Çıkan" value={workforceReport.exits} tone="red" />
+                  <Metric label="Dönem Sonu" value={workforceReport.closing} tone="blue" />
+                  <Metric label="Ortalama Personel" value={workforceReport.average} />
+                  <Metric label="Net Değişim" value={workforceReport.net} tone={workforceReport.net < 0 ? "red" : "green"} />
+                  <Metric label="Devir Oranı" value={workforceReport.turnoverRate} suffix="%" tone="amber" />
+                </section>
+                <WorkforceTrendChart rows={workforceTrendRows} />
+                <section className="data-panel">
+                  <div className="panel-heading">
+                    <div>
+                      <h2>İşe Giriş ve Çıkış Listesi</h2>
+                      <span>{reportStart} - {reportEnd} · {workforceReport.movements.length} hareket</span>
+                    </div>
+                  </div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Tarih</th><th>Hareket</th><th>Personel</th><th>Departman</th><th>Ünvan</th></tr></thead>
+                      <tbody>
+                        {workforceReport.movements.map((row) => (
+                          <tr key={row.id}>
+                            <td>{row.date}</td>
+                            <td><span className={`movement-chip is-${row.kind}`}>{row.kind === "hire" ? "İşe alındı" : "İşten çıktı"}</span></td>
+                            <td><button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}><strong>{row.staff.name}</strong></button></td>
+                            <td>{row.staff.department}</td>
+                            <td>{row.staff.title}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  {!workforceReport.movements.length && <div className="empty-state">Seçili dönemde işe giriş veya çıkış bulunmuyor.</div>}
+                </section>
+              </>
             )}
 
-            <section className="data-panel report-summary-panel">
-              <div className="panel-heading">
-                <div>
-                  <h2>Aylık Özet</h2>
-                  <span>{reportStart} - {reportEnd}</span>
-                </div>
-              </div>
-              <div className="table-scroll">
-                <table className="data-table summary-table">
-                  <thead>
-                    <tr>
-                      <th>No</th>
-                      <th>Personel</th>
-                      <th>Departman</th>
-                      <th>Kayıt</th>
-                      <th>Geldi</th>
-                      <th>Geç</th>
-                      <th>Gelmedi</th>
-                      <th>İzinli</th>
-                      <th>Gecikme Dk</th>
-                      <th>Uyarı</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {reportSummaryRows.map((row) => (
-                      <tr key={row.staff.id} className={row.absent > 0 ? "row-status-absent" : row.late >= 3 ? "row-status-late" : ""}>
-                        <td className="number-cell">{(staffRankById.get(row.staff.id) ?? 0) + 1}</td>
-                        <td>
-                          <button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}>
-                            <strong>{row.staff.name}</strong>
-                            <span>{row.staff.title}</span>
-                          </button>
-                        </td>
-                        <td>{row.staff.department}</td>
-                        <td>{row.total}</td>
-                        <td>{row.present}</td>
-                        <td>{row.late}</td>
-                        <td>{row.absent}</td>
-                        <td>{row.excused}</td>
-                        <td>{row.lateMinutes}</td>
-                        <td>{row.absent > 0 ? <span className="warning-chip">{row.absent} gelmedi</span> : "-"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-
-            <section className="data-panel">
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th>Tarih</th>
-                      <th>Personel</th>
-                      <th>Departman</th>
-                      <th>Giriş</th>
-                      <th>Gecikme</th>
-                      <th>Durum</th>
-                      <th>Açıklama</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {filteredReportRows.map((record) => {
-                      const member = staffById.get(record.staffId);
-                      return (
-                        <tr key={record.id} className={getStatusRowClass(record.status)}>
-                          <td>{record.date}</td>
-                          <td>
-                            {member ? (
-                              <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}>
-                                <strong>{member.name}</strong>
-                                <span>{member.title}</span>
-                              </button>
-                            ) : (
-                              ""
-                            )}
-                          </td>
-                          <td>{member?.department ?? ""}</td>
-                          <td>{record.checkInTime}</td>
-                          <td>
-                            <span className={`late-badge late-${getLateTone(getRecordLateMinutes(record, settings))}`}>
-                              {getRecordLateMinutes(record, settings) || "-"}
-                            </span>
-                          </td>
-                          <td>
-                            <StatusPill status={record.status} />
-                          </td>
-                          <td>{record.lateReason}</td>
+            {reportView === "attendance" && (
+              <>
+                <section className="metric-row" aria-label="Devamlılık özeti">
+                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="green" />
+                  <Metric label="İşe Gelinen Gün" value={attendanceReport.attendedDays} tone="green" />
+                  <Metric label="Geç Kalan Kişi" value={attendanceReport.latePeople} tone="amber" />
+                  <Metric label="Geç Kalınan Gün" value={attendanceReport.lateDays} tone="amber" />
+                  <Metric label="Gelmeyen Kişi" value={attendanceReport.absentPeople} tone="red" />
+                  <Metric label="Gelinmeyen Gün" value={attendanceReport.absentDays} tone="red" />
+                  <Metric label="Toplam Gecikme" value={attendanceReport.totalLateMinutes} suffix=" dk" tone="blue" />
+                  <Metric label="Ort. Gecikme" value={attendanceReport.averageLateMinutes} suffix=" dk" />
+                </section>
+                <ReportCharts dailyTrendRows={dailyTrendRows} departmentRows={departmentReportRows} topAbsentRows={topAbsentRows} onSelectStaff={setSelectedStaffId} />
+                {selectedPersonSummary && (
+                  <section className="person-card">
+                    <div><span>Kişi Karnesi</span><strong>{selectedPersonSummary.staff.name}</strong><small>{[selectedPersonSummary.staff.department, selectedPersonSummary.staff.title].filter(Boolean).join(" / ")}</small></div>
+                    <Metric label="Toplam Gecikme" value={selectedPersonSummary.lateMinutes} suffix=" dk" tone="amber" />
+                    <Metric label="Geç Gün" value={selectedPersonSummary.late} tone="amber" />
+                    <Metric label="Gelmedi" value={selectedPersonSummary.absent} tone="red" />
+                  </section>
+                )}
+                <section className="report-two-column">
+                  <div className="data-panel compact-report-list">
+                    <div className="panel-heading"><div><h2>Hiç Geç Kalmayanlar</h2><span>Seçili dönemde giriş kaydı bulunanlar</span></div></div>
+                    <div className="report-person-list">
+                      {punctualReportStaff.map((member) => <button key={member.id} onClick={() => setSelectedStaffId(member.id)}><strong>{member.name}</strong><span>{member.department}</span></button>)}
+                      {!punctualReportStaff.length && <div className="empty-state">Uygun personel bulunmuyor.</div>}
+                    </div>
+                  </div>
+                  <div className="data-panel compact-report-list">
+                    <div className="panel-heading"><div><h2>Devamsızlık Uyarısı</h2><span>Gelmedi kaydı bulunan personeller</span></div></div>
+                    <div className="report-person-list">
+                      {warningRows.map((row) => <button key={row.staff.id} onClick={() => setSelectedStaffId(row.staff.id)}><strong>{row.staff.name}</strong><span>{row.absent} gün · {row.staff.department}</span></button>)}
+                      {!warningRows.length && <div className="empty-state">Seçili dönemde devamsızlık yok.</div>}
+                    </div>
+                  </div>
+                </section>
+                <section className="data-panel report-summary-panel">
+                  <div className="panel-heading"><div><h2>Personel Devam Özeti</h2><span>{reportStart} - {reportEnd}</span></div></div>
+                  <div className="table-scroll">
+                    <table className="data-table summary-table">
+                      <thead><tr><th>No</th><th>Personel</th><th>Departman</th><th>Kayıt</th><th>Geldi</th><th>Geç</th><th>Gelmedi</th><th>İzinli</th><th>Gecikme Dk</th><th>Uyarı</th></tr></thead>
+                      <tbody>{reportSummaryRows.map((row) => (
+                        <tr key={row.staff.id} className={row.absent > 0 ? "row-status-absent" : row.late >= 3 ? "row-status-late" : ""}>
+                          <td className="number-cell">{(staffRankById.get(row.staff.id) ?? 0) + 1}</td>
+                          <td><button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}><strong>{row.staff.name}</strong><span>{row.staff.title}</span></button></td>
+                          <td>{row.staff.department}</td><td>{row.total}</td><td>{row.present}</td><td>{row.late}</td><td>{row.absent}</td><td>{row.excused}</td><td>{row.lateMinutes}</td>
+                          <td>{row.absent > 0 ? <span className="warning-chip">{row.absent} gelmedi</span> : "-"}</td>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+                      ))}</tbody>
+                    </table>
+                  </div>
+                </section>
+                <section className="data-panel">
+                  <div className="panel-heading"><div><h2>Günlük Detay Kayıtları</h2><span>{filteredReportRows.length} kayıt</span></div></div>
+                  <div className="table-scroll">
+                    <table className="data-table">
+                      <thead><tr><th>Tarih</th><th>Personel</th><th>Departman</th><th>Giriş</th><th>Gecikme</th><th>Durum</th><th>Açıklama</th></tr></thead>
+                      <tbody>{filteredReportRows.map((record) => {
+                        const member = staffById.get(record.staffId);
+                        return <tr key={record.id} className={getStatusRowClass(record.status)}><td>{record.date}</td><td>{member ? <button className="person-trigger" onClick={() => setSelectedStaffId(member.id)}><strong>{member.name}</strong><span>{member.title}</span></button> : ""}</td><td>{member?.department ?? ""}</td><td>{record.checkInTime}</td><td><span className={`late-badge late-${getLateTone(getRecordLateMinutes(record, settings))}`}>{getRecordLateMinutes(record, settings) || "-"}</span></td><td><StatusPill status={record.status} /></td><td>{record.lateReason}</td></tr>;
+                      })}</tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {reportView === "leave" && (
+              <>
+                <section className="metric-row" aria-label="İzin ve rapor özeti">
+                  <Metric label="İzin/Raporlu Kişi" value={leaveReport.totalPeople} tone="blue" />
+                  <Metric label="Toplam Gün" value={leaveReport.totalDays} tone="blue" />
+                  {leaveReport.categories.filter((row) => row.key !== "other" && row.key !== "hourly").map((row) => <Metric key={row.key} label={row.label} value={row.days} suffix=" gün" tone={row.key === "incapacity" ? "red" : row.key === "unpaid" ? "amber" : "green"} />)}
+                  <Metric label="Saatlik İzin" value={leaveReport.totalHourlyMinutes} suffix=" dk" tone="amber" />
+                </section>
+                <section className="report-two-column">
+                  <div className="data-panel">
+                    <div className="panel-heading"><div><h2>İzin Türü Dağılımı</h2><span>{reportStart} - {reportEnd}</span></div></div>
+                    <div className="table-scroll"><table className="data-table"><thead><tr><th>Tür</th><th>Personel</th><th>Kayıt</th><th>Gün</th><th>Süre</th></tr></thead><tbody>{leaveReport.categories.map((row) => <tr key={row.key}><td><strong>{row.label}</strong></td><td>{row.people}</td><td>{row.records}</td><td>{row.days || "-"}</td><td>{row.minutes ? formatDurationMinutes(row.minutes) : "-"}</td></tr>)}</tbody></table></div>
+                  </div>
+                  <div className="data-panel compact-report-list">
+                    <div className="panel-heading"><div><h2>En Çok İzin/Rapor Kullananlar</h2><span>Gün, ardından saatlik izin sıralaması</span></div></div>
+                    <div className="report-person-list">
+                      {leaveReport.topStaff.map((row) => { const member = staffById.get(row.staffId); return member ? <button key={row.staffId} onClick={() => setSelectedStaffId(row.staffId)}><strong>{member.name}</strong><span>{row.days} gün{row.minutes ? ` · ${formatDurationMinutes(row.minutes)}` : ""} · {member.department}</span></button> : null; })}
+                      {!leaveReport.topStaff.length && <div className="empty-state">Seçili dönemde izin veya rapor kaydı yok.</div>}
+                    </div>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {reportView === "departments" && (
+              <>
+                <section className="data-panel">
+                  <div className="panel-heading"><div><h2>Departman Karşılaştırması</h2><span>Personel hareketi, devamlılık ve izin göstergeleri</span></div></div>
+                  <div className="table-scroll"><table className="data-table department-comparison-table"><thead><tr><th>Departman</th><th>Dönem Başı</th><th>İşe Alınan</th><th>İşten Çıkan</th><th>Dönem Sonu</th><th>Net</th><th>Devir %</th><th>Giriş Yapan</th><th>Gelinen Gün</th><th>Geç</th><th>Gelmedi</th><th>İzin/Rapor Günü</th></tr></thead><tbody>{departmentComparisonRows.map((row) => <tr key={row.department}><td><strong>{row.department}</strong></td><td>{row.opening}</td><td className="positive-cell">{row.hires}</td><td className="negative-cell">{row.exits}</td><td>{row.closing}</td><td className={row.net < 0 ? "negative-cell" : "positive-cell"}>{row.net > 0 ? "+" : ""}{row.net}</td><td>{row.turnoverRate}%</td><td>{row.uniqueCheckIns}</td><td>{row.attendedDays}</td><td>{row.lateDays}</td><td>{row.absentDays}</td><td>{row.leaveDays}</td></tr>)}</tbody></table></div>
+                  {!departmentComparisonRows.length && <div className="empty-state">Karşılaştırılacak departman bulunmuyor.</div>}
+                </section>
+              </>
+            )}
           </main>
         )}
 
@@ -7790,11 +7977,21 @@ function HomeCardHeader({
   );
 }
 
-function Metric({ label, value, tone }: { label: string; value: number; tone?: "green" | "amber" | "red" | "blue" }) {
+function Metric({
+  label,
+  value,
+  suffix = "",
+  tone,
+}: {
+  label: string;
+  value: number;
+  suffix?: string;
+  tone?: "green" | "amber" | "red" | "blue";
+}) {
   return (
     <div className={`metric ${tone ? `tone-${tone}` : ""}`}>
       <span>{label}</span>
-      <strong>{value}</strong>
+      <strong>{value}{suffix}</strong>
     </div>
   );
 }
@@ -7990,6 +8187,38 @@ function StaffInsightPanel({ insight, onClose, compact = false }: { insight: Sta
         <StatusPill status={insight.todayStatus} />
         <span>{insight.todayDraft.checkInTime || "Giriş yok"}</span>
         <span>{insight.lastRecord ? `Son kayıt: ${insight.lastRecord.date}` : "Rapor kaydı yok"}</span>
+      </div>
+    </section>
+  );
+}
+
+function WorkforceTrendChart({ rows }: { rows: MonthlyWorkforceTrend[] }) {
+  const maxMovement = Math.max(1, ...rows.flatMap((row) => [row.hires, row.exits]));
+  const shortMonthFormatter = new Intl.DateTimeFormat("tr-TR", { month: "short" });
+
+  return (
+    <section className="data-panel workforce-trend-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Son 12 Ay Personel Hareketi</h2>
+          <span>İşe alınan, işten çıkan ve ay sonu personel sayısı</span>
+        </div>
+        <div className="workforce-chart-legend">
+          <span className="is-hire">İşe alınan</span>
+          <span className="is-exit">İşten çıkan</span>
+        </div>
+      </div>
+      <div className="workforce-trend-chart">
+        {rows.map((row) => (
+          <div className="workforce-month" key={row.month} title={`${formatMonthTr(row.month)}: ${row.hires} giriş, ${row.exits} çıkış, ${row.closing} dönem sonu`}>
+            <div className="workforce-bar-area">
+              <span className="workforce-bar is-hire" style={{ height: `${Math.max(row.hires ? 12 : 3, (row.hires / maxMovement) * 100)}%` }}><b>{row.hires || ""}</b></span>
+              <span className="workforce-bar is-exit" style={{ height: `${Math.max(row.exits ? 12 : 3, (row.exits / maxMovement) * 100)}%` }}><b>{row.exits || ""}</b></span>
+            </div>
+            <strong>{row.closing}</strong>
+            <small>{shortMonthFormatter.format(new Date(`${row.month}-01T12:00:00`))}</small>
+          </div>
+        ))}
       </div>
     </section>
   );
