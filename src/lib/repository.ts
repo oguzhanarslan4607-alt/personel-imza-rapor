@@ -177,6 +177,13 @@ export async function loadAppSettings(): Promise<Partial<AppSettings> | null> {
     if (typeof data.lateAfterMinutes === "number") settings.lateAfterMinutes = data.lateAfterMinutes;
     if (typeof data.rowsPerPrintSide === "number") settings.rowsPerPrintSide = data.rowsPerPrintSide;
     if (data.theme === "light" || data.theme === "dark") settings.theme = data.theme;
+    if (data.departmentHeadcountTargets && typeof data.departmentHeadcountTargets === "object") {
+      settings.departmentHeadcountTargets = Object.fromEntries(
+        Object.entries(data.departmentHeadcountTargets)
+          .filter(([, value]) => typeof value === "number" && Number.isFinite(value))
+          .map(([department, value]) => [department, Number(value)]),
+      );
+    }
     return settings;
   }
 
@@ -279,6 +286,8 @@ function normalizeStaffMember(member: StaffMember): StaffMember {
     fixedStaff: Boolean(member.fixedStaff),
     startDate: member.startDate ?? "",
     endDate: member.endDate ?? "",
+    departureType: member.departureType ?? "",
+    departureReason: member.departureReason ?? "",
   };
 }
 

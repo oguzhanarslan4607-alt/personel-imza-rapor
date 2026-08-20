@@ -22,6 +22,8 @@ export type StaffMember = {
   fixedStaff?: boolean;
   startDate?: string;
   endDate?: string;
+  departureType?: string;
+  departureReason?: string;
 };
 
 export type AttendanceRecord = {
@@ -141,6 +143,7 @@ export type AppSettings = {
   lateAfterMinutes: number;
   rowsPerPrintSide: number;
   theme: "light" | "dark";
+  departmentHeadcountTargets: Record<string, number>;
 };
 
 export type AppBackup = {

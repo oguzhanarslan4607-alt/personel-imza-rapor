@@ -9,6 +9,7 @@ export const defaultSettings: AppSettings = {
   lateAfterMinutes: 0,
   rowsPerPrintSide: 43,
   theme: "light",
+  departmentHeadcountTargets: {},
 };
 
 export function loadSettings(): AppSettings {

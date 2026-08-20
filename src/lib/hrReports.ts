@@ -81,6 +81,22 @@ export type DepartmentComparisonRow = {
   leaveDays: number;
 };
 
+export type ConsecutiveAbsenceRow = {
+  staffId: string;
+  maxConsecutiveDays: number;
+  latestAbsenceDate: string;
+};
+
+export type LeaveDensityRow = {
+  date: string;
+  staffIds: string[];
+};
+
+export type EarlyExitRow = {
+  staff: StaffMember;
+  employmentDays: number;
+};
+
 function matchesStaff(member: StaffMember, filter: ReportStaffFilter) {
   return (
     (!filter.department || filter.department === "all" || member.department === filter.department) &&
@@ -118,6 +134,19 @@ function countWorkdays(startDate: string, endDate: string) {
     cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
   return days;
+}
+
+function nextWorkday(value: string) {
+  const cursor = new Date(`${value}T12:00:00Z`);
+  do cursor.setUTCDate(cursor.getUTCDate() + 1);
+  while (cursor.getUTCDay() === 0);
+  return cursor.toISOString().slice(0, 10);
+}
+
+function calendarDayDifference(startDate: string, endDate: string) {
+  const start = new Date(`${startDate}T12:00:00Z`).getTime();
+  const end = new Date(`${endDate}T12:00:00Z`).getTime();
+  return Math.max(0, Math.floor((end - start) / 86_400_000) + 1);
 }
 
 function countOverlapWorkdays(start: string, end: string, reportStart: string, reportEnd: string) {
@@ -201,6 +230,105 @@ export function getAttendanceSummary(records: AttendanceRecord[], shiftStart: st
     averageLateMinutes: lateRecords.length ? Math.round(totalLateMinutes / lateRecords.length) : 0,
     punctualStaffIds: [...staffWithAttendance].filter((staffId) => !lateStaff.has(staffId)),
   };
+}
+
+export function getExpectedWorkdays(
+  staff: StaffMember[],
+  startDate: string,
+  endDate: string,
+  filter: ReportStaffFilter = {},
+) {
+  return staff
+    .filter((member) => matchesStaff(member, filter))
+    .reduce((total, member) => {
+      const employmentStart = member.startDate && member.startDate > startDate ? member.startDate : startDate;
+      const employmentEnd = member.endDate && member.endDate < endDate ? member.endDate : endDate;
+      if (employmentEnd < employmentStart || (!member.startDate && !member.active && !member.endDate)) return total;
+      return total + countWorkdays(employmentStart, employmentEnd);
+    }, 0);
+}
+
+export function getConsecutiveAbsenceRows(records: AttendanceRecord[], minimumDays = 2): ConsecutiveAbsenceRow[] {
+  const absencesByStaff = new Map<string, string[]>();
+  records
+    .filter((record) => record.status === "absent")
+    .forEach((record) => {
+      const dates = absencesByStaff.get(record.staffId) ?? [];
+      dates.push(record.date);
+      absencesByStaff.set(record.staffId, dates);
+    });
+
+  return [...absencesByStaff.entries()]
+    .map(([staffId, rawDates]) => {
+      const dates = [...new Set(rawDates)].sort();
+      let current = 0;
+      let maximum = 0;
+      let latestAbsenceDate = "";
+      dates.forEach((date, index) => {
+        current = index > 0 && nextWorkday(dates[index - 1]) === date ? current + 1 : 1;
+        if (current >= maximum) {
+          maximum = current;
+          latestAbsenceDate = date;
+        }
+      });
+      return { staffId, maxConsecutiveDays: maximum, latestAbsenceDate };
+    })
+    .filter((row) => row.maxConsecutiveDays >= minimumDays)
+    .sort((a, b) => b.maxConsecutiveDays - a.maxConsecutiveDays || b.latestAbsenceDate.localeCompare(a.latestAbsenceDate));
+}
+
+export function getLeaveDensityRows(
+  annualLeaveRecords: AnnualLeaveRecord[],
+  incapacityReports: IncapacityReportRecord[],
+  startDate: string,
+  endDate: string,
+  allowedStaffIds: Set<string>,
+): LeaveDensityRow[] {
+  const staffByDate = new Map<string, Set<string>>();
+  const addRange = (staffId: string, rangeStart: string, rangeEnd: string) => {
+    if (!allowedStaffIds.has(staffId) || !overlaps(rangeStart, rangeEnd, startDate, endDate)) return;
+    const cursor = new Date(`${rangeStart < startDate ? startDate : rangeStart}T12:00:00Z`);
+    const last = new Date(`${rangeEnd > endDate ? endDate : rangeEnd}T12:00:00Z`);
+    while (cursor <= last) {
+      if (cursor.getUTCDay() !== 0) {
+        const date = cursor.toISOString().slice(0, 10);
+        const ids = staffByDate.get(date) ?? new Set<string>();
+        ids.add(staffId);
+        staffByDate.set(date, ids);
+      }
+      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    }
+  };
+
+  annualLeaveRecords
+    .filter((record) => record.status !== "cancelled")
+    .forEach((record) => addRange(record.staffId, record.startDate, record.endDate));
+  incapacityReports
+    .filter((record) => record.status !== "cancelled")
+    .forEach((record) => addRange(record.staffId, record.startDate, record.endDate));
+
+  return [...staffByDate.entries()]
+    .map(([date, staffIds]) => ({ date, staffIds: [...staffIds] }))
+    .sort((a, b) => b.staffIds.length - a.staffIds.length || a.date.localeCompare(b.date));
+}
+
+export function getEarlyExitRows(
+  staff: StaffMember[],
+  startDate: string,
+  endDate: string,
+  filter: ReportStaffFilter = {},
+  maximumEmploymentDays = 90,
+): EarlyExitRow[] {
+  return staff
+    .filter(
+      (member) =>
+        matchesStaff(member, filter) &&
+        Boolean(member.startDate && member.endDate) &&
+        isWithin(member.endDate, startDate, endDate),
+    )
+    .map((member) => ({ staff: member, employmentDays: calendarDayDifference(member.startDate!, member.endDate!) }))
+    .filter((row) => row.employmentDays <= maximumEmploymentDays)
+    .sort((a, b) => a.employmentDays - b.employmentDays || b.staff.endDate!.localeCompare(a.staff.endDate!));
 }
 
 export function getLeaveReportSummary(
