@@ -9,6 +9,7 @@ import {
   CalendarDays,
   CheckCircle2,
   CheckSquare,
+  CircleGauge,
   Database,
   Edit3,
   Eye,
@@ -34,13 +35,17 @@ import {
   Settings,
   ShieldCheck,
   Sun,
+  Target,
   TriangleAlert,
   Trash2,
   UnlockKeyhole,
   Upload,
   UserRound,
+  UserMinus,
+  UserPlus,
   Users,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { createSampleStaff } from "./data/sampleStaff";
@@ -109,6 +114,8 @@ import {
   getLeaveReportSummary,
   getMonthlyWorkforceTrend,
   getWorkforceSummary,
+  type DepartmentComparisonRow,
+  type LeaveDensityRow,
   type MonthlyWorkforceTrend,
 } from "./lib/hrReports";
 import { getBirthdayTimingLabel, getUpcomingBirthdays } from "./lib/birthday";
@@ -5219,16 +5226,28 @@ function App() {
               </button>
             </section>
 
+            <section className="report-page-heading">
+              <div>
+                <span><BarChart3 size={16} aria-hidden="true" /> Yönetici raporu</span>
+                <h2>İK performans görünümü</h2>
+                <p>Personel hareketleri, devamlılık, izinler ve departman hedefleri tek ekranda.</p>
+              </div>
+              <div className="report-period-badge">
+                <CalendarDays size={17} aria-hidden="true" />
+                <span><small>Rapor dönemi</small><strong>{formatDateTr(reportStart)} – {formatDateTr(reportEnd)}</strong></span>
+              </div>
+            </section>
+
             <section className="report-view-tabs" aria-label="Rapor bölümleri">
               {([
-                ["overview", "Genel Bakış"],
-                ["movements", "Personel Hareketleri"],
-                ["attendance", "Devamlılık"],
-                ["leave", "İzin ve Raporlar"],
-                ["departments", "Departman Karşılaştırması"],
-              ] as Array<[ReportView, string]>).map(([key, label]) => (
+                ["overview", "Genel Bakış", LayoutDashboard],
+                ["movements", "Personel Hareketleri", Users],
+                ["attendance", "Devamlılık", CheckCircle2],
+                ["leave", "İzin ve Raporlar", CalendarDays],
+                ["departments", "Departman Karşılaştırması", BarChart3],
+              ] as Array<[ReportView, string, LucideIcon]>).map(([key, label, Icon]) => (
                 <button key={key} className={reportView === key ? "is-active" : ""} onClick={() => setReportView(key)}>
-                  {label}
+                  <Icon size={16} aria-hidden="true" /> {label}
                 </button>
               ))}
             </section>
@@ -5236,13 +5255,13 @@ function App() {
             {reportView === "overview" && (
               <>
                 <section className="metric-row report-workforce-metrics" aria-label="Personel hareketleri özeti">
-                  <Metric label="Dönem Başı" value={workforceReport.opening} />
-                  <Metric label="İşe Alınan" value={workforceReport.hires} tone="green" />
-                  <Metric label="İşten Çıkan" value={workforceReport.exits} tone="red" />
-                  <Metric label="Dönem Sonu" value={workforceReport.closing} tone="blue" />
-                  <Metric label="Net Değişim" value={workforceReport.net} tone={workforceReport.net < 0 ? "red" : "green"} />
-                  <Metric label="Devir Oranı" value={workforceReport.turnoverRate} suffix="%" tone="amber" />
-                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="blue" />
+                  <Metric label="Dönem Başı" value={workforceReport.opening} icon={Users} />
+                  <Metric label="İşe Alınan" value={workforceReport.hires} tone="green" icon={UserPlus} delta={`${getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires).difference >= 0 ? "+" : ""}${getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires).difference} önceki aya göre`} deltaTone={getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires).difference < 0 ? "negative" : "positive"} />
+                  <Metric label="İşten Çıkan" value={workforceReport.exits} tone="red" icon={UserMinus} delta={`${getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits).difference >= 0 ? "+" : ""}${getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits).difference} önceki aya göre`} deltaTone={getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits).difference > 0 ? "negative" : "positive"} />
+                  <Metric label="Dönem Sonu" value={workforceReport.closing} tone="blue" icon={Users} delta={`${workforceClosingMonthDelta.difference >= 0 ? "+" : ""}${workforceClosingMonthDelta.difference} önceki aya göre`} />
+                  <Metric label="Net Değişim" value={workforceReport.net} tone={workforceReport.net < 0 ? "red" : "green"} icon={Activity} />
+                  <Metric label="Devir Oranı" value={workforceReport.turnoverRate} suffix="%" tone="amber" icon={CircleGauge} />
+                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="blue" icon={CheckCircle2} />
                 </section>
 
                 <section className="report-narrative" aria-label="Dönem özeti">
@@ -5270,7 +5289,7 @@ function App() {
                     { label: "İşe Gelinen Gün", current: attendanceReport.attendedDays, month: attendanceMonthDelta, year: attendanceYearDelta },
                   ].map((item) => (
                     <article className="report-comparison-card" key={item.label}>
-                      <span>{item.label}</span>
+                      <div className="report-comparison-card-head"><Activity size={16} aria-hidden="true" /><span>{item.label}</span></div>
                       <strong>{item.current}</strong>
                       <small className={item.month.difference < 0 ? "is-negative" : item.month.difference > 0 ? "is-positive" : ""}>
                         Önceki aya göre {item.month.difference > 0 ? "+" : ""}{item.month.difference} · %{item.month.percentage > 0 ? "+" : ""}{item.month.percentage}
@@ -5288,13 +5307,20 @@ function App() {
                     <h2>Dönemin öne çıkanları</h2>
                     <ul>{managementSummaryLines.map((line) => <li key={line}>{line}</li>)}</ul>
                   </div>
-                  <button className="secondary-action" onClick={() => void handleDownloadManagementSummaryPdf()}>
-                    <FileDown size={18} aria-hidden="true" />
-                    Yönetici Özeti PDF
-                  </button>
+                  <div className="management-summary-actions">
+                    <span className={`management-status ${absenceRate > 5 || workforceReport.net < -2 ? "is-warning" : "is-good"}`}>
+                      {absenceRate > 5 || workforceReport.net < -2 ? "Dikkat gerektiriyor" : "Genel durum iyi"}
+                    </span>
+                    <button className="secondary-action" onClick={() => void handleDownloadManagementSummaryPdf()}>
+                      <FileDown size={18} aria-hidden="true" /> Yönetici Özeti PDF
+                    </button>
+                  </div>
                 </section>
 
-                <WorkforceTrendChart rows={workforceTrendRows} />
+                <section className="report-visual-grid">
+                  <WorkforceTrendChart rows={workforceTrendRows} />
+                  <DepartmentDistributionChart rows={departmentComparisonRows} />
+                </section>
 
                 <section className="warning-panel-grid" aria-label="Yönetim uyarıları">
                   <div className="warning-panel-card">
@@ -5371,16 +5397,16 @@ function App() {
             {reportView === "attendance" && (
               <>
                 <section className="metric-row" aria-label="Devamlılık özeti">
-                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="green" />
-                  <Metric label="İşe Gelinen Gün" value={attendanceReport.attendedDays} tone="green" />
-                  <Metric label="Geç Kalan Kişi" value={attendanceReport.latePeople} tone="amber" />
-                  <Metric label="Geç Kalınan Gün" value={attendanceReport.lateDays} tone="amber" />
-                  <Metric label="Gelmeyen Kişi" value={attendanceReport.absentPeople} tone="red" />
-                  <Metric label="Gelinmeyen Gün" value={attendanceReport.absentDays} tone="red" />
-                  <Metric label="Toplam Gecikme" value={attendanceReport.totalLateMinutes} suffix=" dk" tone="blue" />
-                  <Metric label="Ort. Gecikme" value={attendanceReport.averageLateMinutes} suffix=" dk" />
-                  <Metric label="Devam Oranı" value={attendanceRate} suffix="%" tone="green" />
-                  <Metric label="Devamsızlık Oranı" value={absenceRate} suffix="%" tone="red" />
+                  <Metric label="Giriş Kaydı Olan" value={attendanceReport.uniqueCheckIns} tone="green" icon={Users} />
+                  <Metric label="İşe Gelinen Gün" value={attendanceReport.attendedDays} tone="green" icon={CheckCircle2} />
+                  <Metric label="Geç Kalan Kişi" value={attendanceReport.latePeople} tone="amber" icon={Activity} />
+                  <Metric label="Geç Kalınan Gün" value={attendanceReport.lateDays} tone="amber" icon={CalendarDays} />
+                  <Metric label="Gelmeyen Kişi" value={attendanceReport.absentPeople} tone="red" icon={TriangleAlert} />
+                  <Metric label="Gelinmeyen Gün" value={attendanceReport.absentDays} tone="red" icon={CalendarCheck} />
+                  <Metric label="Toplam Gecikme" value={attendanceReport.totalLateMinutes} suffix=" dk" tone="blue" icon={Activity} />
+                  <Metric label="Ort. Gecikme" value={attendanceReport.averageLateMinutes} suffix=" dk" icon={CircleGauge} />
+                  <Metric label="Devam Oranı" value={attendanceRate} suffix="%" tone="green" icon={CheckCircle2} delta={`${attendanceMonthDelta.difference >= 0 ? "+" : ""}${attendanceMonthDelta.difference} gün önceki aya göre`} deltaTone={attendanceMonthDelta.difference < 0 ? "negative" : "positive"} />
+                  <Metric label="Devamsızlık Oranı" value={absenceRate} suffix="%" tone="red" icon={TriangleAlert} />
                 </section>
                 <section className="data-panel compact-report-list">
                   <div className="panel-heading"><div><h2>Ardışık Devamsızlık Takibi</h2><span>En az iki iş günü üst üste gelmedi kaydı bulunanlar</span></div></div>
@@ -5448,10 +5474,10 @@ function App() {
             {reportView === "leave" && (
               <>
                 <section className="metric-row" aria-label="İzin ve rapor özeti">
-                  <Metric label="İzin/Raporlu Kişi" value={leaveReport.totalPeople} tone="blue" />
-                  <Metric label="Toplam Gün" value={leaveReport.totalDays} tone="blue" />
+                  <Metric label="İzin/Raporlu Kişi" value={leaveReport.totalPeople} tone="blue" icon={Users} />
+                  <Metric label="Toplam Gün" value={leaveReport.totalDays} tone="blue" icon={CalendarDays} />
                   {leaveReport.categories.filter((row) => row.key !== "other" && row.key !== "hourly").map((row) => <Metric key={row.key} label={row.label} value={row.days} suffix=" gün" tone={row.key === "incapacity" ? "red" : row.key === "unpaid" ? "amber" : "green"} />)}
-                  <Metric label="Saatlik İzin" value={leaveReport.totalHourlyMinutes} suffix=" dk" tone="amber" />
+                  <Metric label="Saatlik İzin" value={leaveReport.totalHourlyMinutes} suffix=" dk" tone="amber" icon={Activity} />
                 </section>
                 <section className="report-two-column">
                   <div className="data-panel">
@@ -5466,11 +5492,7 @@ function App() {
                     </div>
                   </div>
                 </section>
-                <section className="data-panel">
-                  <div className="panel-heading"><div><h2>Gelecek 30 Gün İzin Yoğunluğu</h2><span>Aynı gün izinli veya raporlu olacak personeller</span></div></div>
-                  <div className="table-scroll"><table className="data-table"><thead><tr><th>Tarih</th><th>Gün</th><th>Kişi Sayısı</th><th>Personeller</th></tr></thead><tbody>{futureLeaveDensityRows.slice(0, 15).map((row) => <tr key={row.date}><td><strong>{formatDateTr(row.date)}</strong></td><td>{new Date(`${row.date}T12:00:00`).toLocaleDateString("tr-TR", { weekday: "long" })}</td><td>{row.staffIds.length}</td><td>{row.staffIds.map((staffId) => staffById.get(staffId)?.name).filter(Boolean).join(", ")}</td></tr>)}</tbody></table></div>
-                  {!futureLeaveDensityRows.length && <div className="empty-state">Önümüzdeki 30 gün için planlanmış izin veya rapor yok.</div>}
-                </section>
+                <LeaveDensityCalendar rows={futureLeaveDensityRows} staffById={staffById} />
               </>
             )}
 
@@ -5478,7 +5500,7 @@ function App() {
               <>
                 <section className="data-panel">
                   <div className="panel-heading"><div><h2>Departman Karşılaştırması</h2><span>Personel hareketi, devamlılık ve izin göstergeleri</span></div></div>
-                  <div className="table-scroll"><table className="data-table department-comparison-table"><thead><tr><th>Departman</th><th>Hedef Kadro</th><th>Mevcut</th><th>Hedef Farkı</th><th>Dönem Başı</th><th>İşe Alınan</th><th>İşten Çıkan</th><th>Net</th><th>Devir %</th><th>Giriş Yapan</th><th>Gelinen Gün</th><th>Geç</th><th>Gelmedi</th><th>İzin/Rapor Günü</th></tr></thead><tbody>{departmentComparisonRows.map((row) => { const target = settings.departmentHeadcountTargets[row.department] ?? 0; const gap = target ? target - row.closing : 0; return <tr key={row.department}><td><strong>{row.department}</strong></td><td><input className="headcount-target-input" type="number" min="0" value={target || ""} placeholder="0" aria-label={`${row.department} hedef kadro`} onChange={(event) => updateSettings({ departmentHeadcountTargets: { ...settings.departmentHeadcountTargets, [row.department]: Math.max(0, Number(event.target.value) || 0) } })} /></td><td><strong>{row.closing}</strong></td><td className={gap > 0 ? "negative-cell" : gap < 0 ? "positive-cell" : ""}>{target ? (gap > 0 ? `${gap} açık` : gap < 0 ? `${Math.abs(gap)} fazla` : "Hedefte") : "-"}</td><td>{row.opening}</td><td className="positive-cell">{row.hires}</td><td className="negative-cell">{row.exits}</td><td className={row.net < 0 ? "negative-cell" : "positive-cell"}>{row.net > 0 ? "+" : ""}{row.net}</td><td>{row.turnoverRate}%</td><td>{row.uniqueCheckIns}</td><td>{row.attendedDays}</td><td>{row.lateDays}</td><td>{row.absentDays}</td><td>{row.leaveDays}</td></tr>; })}</tbody></table></div>
+                  <div className="table-scroll"><table className="data-table department-comparison-table"><thead><tr><th>Departman</th><th>Hedef Kadro</th><th>Mevcut</th><th>Doluluk</th><th>Hedef Farkı</th><th>Dönem Başı</th><th>İşe Alınan</th><th>İşten Çıkan</th><th>Net</th><th>Devir %</th><th>Giriş Yapan</th><th>Gelinen Gün</th><th>Geç</th><th>Gelmedi</th><th>İzin/Rapor Günü</th></tr></thead><tbody>{departmentComparisonRows.map((row) => { const target = settings.departmentHeadcountTargets[row.department] ?? 0; const gap = target ? target - row.closing : 0; const occupancy = target ? Math.min(100, Math.round((row.closing / target) * 100)) : 0; return <tr key={row.department}><td><strong>{row.department}</strong></td><td><input className="headcount-target-input" type="number" min="0" value={target || ""} placeholder="0" aria-label={`${row.department} hedef kadro`} onChange={(event) => updateSettings({ departmentHeadcountTargets: { ...settings.departmentHeadcountTargets, [row.department]: Math.max(0, Number(event.target.value) || 0) } })} /></td><td><strong>{row.closing}</strong></td><td><div className="headcount-progress" aria-label={`${row.department} hedef doluluk yüzde ${occupancy}`}><span style={{ width: `${occupancy}%` }} /></div><small className="headcount-progress-value">%{occupancy}</small></td><td className={gap > 0 ? "negative-cell" : gap < 0 ? "positive-cell" : ""}>{target ? (gap > 0 ? `${gap} açık` : gap < 0 ? `${Math.abs(gap)} fazla` : "Hedefte") : "-"}</td><td>{row.opening}</td><td className="positive-cell">{row.hires}</td><td className="negative-cell">{row.exits}</td><td className={row.net < 0 ? "negative-cell" : "positive-cell"}>{row.net > 0 ? "+" : ""}{row.net}</td><td>{row.turnoverRate}%</td><td>{row.uniqueCheckIns}</td><td>{row.attendedDays}</td><td>{row.lateDays}</td><td>{row.absentDays}</td><td>{row.leaveDays}</td></tr>; })}</tbody></table></div>
                   {!departmentComparisonRows.length && <div className="empty-state">Karşılaştırılacak departman bulunmuyor.</div>}
                 </section>
               </>
@@ -8315,16 +8337,23 @@ function Metric({
   value,
   suffix = "",
   tone,
+  icon: Icon,
+  delta,
+  deltaTone = "positive",
 }: {
   label: string;
   value: number;
   suffix?: string;
   tone?: "green" | "amber" | "red" | "blue";
+  icon?: LucideIcon;
+  delta?: string;
+  deltaTone?: "positive" | "negative";
 }) {
   return (
     <div className={`metric ${tone ? `tone-${tone}` : ""}`}>
-      <span>{label}</span>
+      <div className="metric-head"><span>{label}</span>{Icon && <i><Icon size={17} aria-hidden="true" /></i>}</div>
       <strong>{value}{suffix}</strong>
+      {delta && <small className={`metric-delta is-${deltaTone}`}><Activity size={13} aria-hidden="true" /> {delta}</small>}
     </div>
   );
 }
@@ -8553,6 +8582,70 @@ function WorkforceTrendChart({ rows }: { rows: MonthlyWorkforceTrend[] }) {
           </div>
         ))}
       </div>
+    </section>
+  );
+}
+
+function DepartmentDistributionChart({ rows }: { rows: DepartmentComparisonRow[] }) {
+  const colors = ["#356cff", "#7c5ce5", "#f59e0b", "#14b8a6"];
+  const sortedRows = [...rows].filter((row) => row.closing > 0).sort((a, b) => b.closing - a.closing);
+  const visibleRows = sortedRows.slice(0, 4);
+  const total = visibleRows.reduce((sum, row) => sum + row.closing, 0);
+  let cursor = 0;
+  const gradient = visibleRows.length
+    ? `conic-gradient(${visibleRows.map((row, index) => {
+        const start = cursor;
+        cursor += (row.closing / total) * 100;
+        return `${colors[index]} ${start}% ${cursor}%`;
+      }).join(", ")})`
+    : "conic-gradient(#dbe4f3 0 100%)";
+
+  return (
+    <section className="data-panel department-donut-panel">
+      <div className="panel-heading"><div><h2>Departman Dağılımı</h2><span>Dönem sonu aktif personel</span></div><PieChart size={19} aria-hidden="true" /></div>
+      {total > 0 ? (
+        <div className="department-donut-content">
+          <div className="department-donut" style={{ background: gradient }} role="img" aria-label={`Toplam ${total} personelin departman dağılımı`}>
+            <div><strong>{total}</strong><span>personel</span></div>
+          </div>
+          <div className="department-donut-legend">
+            {visibleRows.map((row, index) => (
+              <div key={row.department}><i style={{ background: colors[index] }} /><span>{row.department}</span><strong>{row.closing}</strong><small>%{Math.round((row.closing / total) * 100)}</small></div>
+            ))}
+          </div>
+        </div>
+      ) : <div className="empty-state">Dağılım için personel verisi bulunmuyor.</div>}
+    </section>
+  );
+}
+
+function LeaveDensityCalendar({ rows, staffById }: { rows: LeaveDensityRow[]; staffById: Map<string, StaffMember> }) {
+  const rowByDate = new Map(rows.map((row) => [row.date, row]));
+  const dates = Array.from({ length: 30 }, (_, index) => addDaysIso(todayIso(), index));
+  const maxPeople = Math.max(1, ...rows.map((row) => row.staffIds.length));
+
+  return (
+    <section className="data-panel leave-density-panel">
+      <div className="panel-heading">
+        <div><h2>Gelecek 30 Gün İzin Yoğunluğu</h2><span>Renk koyulaştıkça aynı gün izinli veya raporlu personel sayısı artar</span></div>
+        <div className="leave-density-legend"><span>Az</span><i /><i className="is-medium" /><i className="is-high" /><span>Yoğun</span></div>
+      </div>
+      <div className="leave-density-calendar">
+        {dates.map((date) => {
+          const row = rowByDate.get(date);
+          const count = row?.staffIds.length ?? 0;
+          const level = count === 0 ? "" : count / maxPeople > 0.66 ? "is-high" : count / maxPeople > 0.33 ? "is-medium" : "is-low";
+          const names = row?.staffIds.map((staffId) => staffById.get(staffId)?.name).filter(Boolean).join(", ") ?? "";
+          return (
+            <div className={`leave-density-day ${level}`} key={date} title={count ? `${formatDateTr(date)}: ${names}` : `${formatDateTr(date)}: izin yok`}>
+              <small>{new Date(`${date}T12:00:00`).toLocaleDateString("tr-TR", { weekday: "short" })}</small>
+              <strong>{date.slice(-2)}</strong>
+              <span>{count ? `${count} kişi` : "-"}</span>
+            </div>
+          );
+        })}
+      </div>
+      {!rows.length && <div className="empty-state">Önümüzdeki 30 gün için planlanmış izin veya rapor yok.</div>}
     </section>
   );
 }
