@@ -101,7 +101,11 @@ import { getUnpaidLeaveAutomaticStatus } from "./lib/unpaidLeave";
 import { getSignatureSheetExplanation } from "./lib/signatureSheet";
 import {
   getAttendanceSummary,
+  getConsecutiveAbsenceRows,
   getDepartmentComparisonRows,
+  getEarlyExitRows,
+  getExpectedWorkdays,
+  getLeaveDensityRows,
   getLeaveReportSummary,
   getMonthlyWorkforceTrend,
   getWorkforceSummary,
@@ -341,6 +345,14 @@ const leaveStatusLabels: Record<LeaveStatus, string> = {
   completed: "Bitti",
   cancelled: "İptal",
 };
+const departureTypeLabels: Record<string, string> = {
+  resignation: "İstifa",
+  employer_termination: "İşveren feshi",
+  retirement: "Emeklilik",
+  military: "Askerlik",
+  contract_end: "Sözleşme bitişi",
+  other: "Diğer",
+};
 const hourlyLeaveStatusLabels: Record<HourlyLeaveStatus, string> = {
   planned: "Planlandı",
   used: "Kullanıldı",
@@ -408,6 +420,27 @@ function addDaysIso(date: string, days: number) {
   return isoFromUtcDate(next);
 }
 
+function shiftIsoMonths(date: string, months: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const target = new Date(Date.UTC(year, month - 1 + months, 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(day, lastDay));
+  return isoFromUtcDate(target);
+}
+
+function shiftIsoYears(date: string, years: number) {
+  const [year, month, day] = date.split("-").map(Number);
+  const lastDay = new Date(Date.UTC(year + years, month, 0)).getUTCDate();
+  return `${year + years}-${String(month).padStart(2, "0")}-${String(Math.min(day, lastDay)).padStart(2, "0")}`;
+}
+
+function getReportComparisonRanges(startDate: string, endDate: string) {
+  return {
+    previousMonth: { start: shiftIsoMonths(startDate, -1), end: shiftIsoMonths(endDate, -1) },
+    previousYear: { start: shiftIsoYears(startDate, -1), end: shiftIsoYears(endDate, -1) },
+  };
+}
+
 function getIslamicDateParts(date: Date) {
   const parts = islamicDateFormatter.formatToParts(date);
   return {
@@ -465,6 +498,24 @@ function getTurkiyePublicHolidays(year: number): PublicHoliday[] {
 function getRecordLateMinutes(record: AttendanceRecord, settings: AppSettings) {
   if (record.status !== "late") return 0;
   return getLateMinutes(record.checkInTime, settings);
+}
+
+function filterReportAttendance(
+  records: AttendanceRecord[],
+  staffById: Map<string, StaffMember>,
+  staffId: string,
+  department: string,
+) {
+  return records.filter((record) => {
+    const member = staffById.get(record.staffId);
+    return (staffId === "all" || record.staffId === staffId) && (department === "all" || member?.department === department);
+  });
+}
+
+function getMetricDelta(current: number, previous: number) {
+  const difference = Number((current - previous).toFixed(1));
+  const percentage = previous ? Number((((current - previous) / previous) * 100).toFixed(1)) : current ? 100 : 0;
+  return { difference, percentage };
 }
 
 function getDraftStatus(draft: DraftRecord, settings: AppSettings): AttendanceStatus | "" {
@@ -1015,6 +1066,8 @@ function getProfileExportStaffDetails(staffMember: StaffMember) {
     { label: "Doğum Tarihi", value: staffMember.birthDate || "-" },
     { label: "İşe Giriş", value: staffMember.startDate || "-" },
     { label: "İşten Çıkış", value: staffMember.endDate || "-" },
+    { label: "Çıkış Türü", value: departureTypeLabels[staffMember.departureType ?? ""] ?? "-" },
+    { label: "Çıkış Nedeni", value: staffMember.departureReason || "-" },
     { label: "Vardiya", value: staffMember.shiftType || "-" },
     { label: "T.C. Kimlik No", value: staffMember.nationalId || "-" },
     { label: "Telefon", value: staffMember.phone || "-" },
@@ -1186,6 +1239,8 @@ function App() {
   const [reportStart, setReportStart] = useState(monthStartIso());
   const [reportEnd, setReportEnd] = useState(todayIso());
   const [reportRows, setReportRows] = useState<AttendanceRecord[]>([]);
+  const [previousMonthReportRows, setPreviousMonthReportRows] = useState<AttendanceRecord[]>([]);
+  const [previousYearReportRows, setPreviousYearReportRows] = useState<AttendanceRecord[]>([]);
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
   const [reportView, setReportView] = useState<ReportView>("overview");
@@ -1210,6 +1265,8 @@ function App() {
     birthDate: "",
     startDate: todayIso(),
     endDate: "",
+    departureType: "",
+    departureReason: "",
     showOnSignatureSheet: true,
     fixedStaff: false,
   });
@@ -1858,6 +1915,106 @@ function App() {
         .sort((a, b) => a.name.localeCompare(b.name, "tr")),
     [attendanceReport.punctualStaffIds, staffById],
   );
+  const reportComparisonRanges = useMemo(
+    () => getReportComparisonRanges(reportStart, reportEnd),
+    [reportEnd, reportStart],
+  );
+  const previousMonthWorkforce = useMemo(
+    () =>
+      getWorkforceSummary(
+        staff,
+        reportComparisonRanges.previousMonth.start,
+        reportComparisonRanges.previousMonth.end,
+        reportStaffFilter,
+      ),
+    [reportComparisonRanges.previousMonth.end, reportComparisonRanges.previousMonth.start, reportStaffFilter, staff],
+  );
+  const previousYearWorkforce = useMemo(
+    () =>
+      getWorkforceSummary(
+        staff,
+        reportComparisonRanges.previousYear.start,
+        reportComparisonRanges.previousYear.end,
+        reportStaffFilter,
+      ),
+    [reportComparisonRanges.previousYear.end, reportComparisonRanges.previousYear.start, reportStaffFilter, staff],
+  );
+  const previousMonthAttendance = useMemo(
+    () =>
+      getAttendanceSummary(
+        filterReportAttendance(previousMonthReportRows, staffById, reportStaffId, reportDepartment),
+        settings.shiftStart,
+      ),
+    [previousMonthReportRows, reportDepartment, reportStaffId, settings.shiftStart, staffById],
+  );
+  const previousYearAttendance = useMemo(
+    () =>
+      getAttendanceSummary(
+        filterReportAttendance(previousYearReportRows, staffById, reportStaffId, reportDepartment),
+        settings.shiftStart,
+      ),
+    [previousYearReportRows, reportDepartment, reportStaffId, settings.shiftStart, staffById],
+  );
+  const expectedAttendanceDays = useMemo(
+    () => getExpectedWorkdays(staff, reportStart, reportEnd, reportStaffFilter),
+    [reportEnd, reportStaffFilter, reportStart, staff],
+  );
+  const attendanceRate = expectedAttendanceDays
+    ? Number(((attendanceReport.attendedDays / expectedAttendanceDays) * 100).toFixed(1))
+    : 0;
+  const absenceRate = expectedAttendanceDays
+    ? Number(((attendanceReport.absentDays / expectedAttendanceDays) * 100).toFixed(1))
+    : 0;
+  const consecutiveAbsenceRows = useMemo(
+    () => getConsecutiveAbsenceRows(filteredReportRows),
+    [filteredReportRows],
+  );
+  const earlyExitRows = useMemo(
+    () => getEarlyExitRows(staff, reportStart, reportEnd, reportStaffFilter),
+    [reportEnd, reportStaffFilter, reportStart, staff],
+  );
+  const futureLeaveDensityRows = useMemo(
+    () =>
+      getLeaveDensityRows(
+        annualLeaveRecords,
+        incapacityReports,
+        todayIso(),
+        addDaysIso(todayIso(), 30),
+        reportScopedStaffIds,
+      ),
+    [annualLeaveRecords, incapacityReports, reportScopedStaffIds],
+  );
+  const workforceClosingMonthDelta = getMetricDelta(workforceReport.closing, previousMonthWorkforce.closing);
+  const workforceClosingYearDelta = getMetricDelta(workforceReport.closing, previousYearWorkforce.closing);
+  const attendanceMonthDelta = getMetricDelta(attendanceReport.attendedDays, previousMonthAttendance.attendedDays);
+  const attendanceYearDelta = getMetricDelta(attendanceReport.attendedDays, previousYearAttendance.attendedDays);
+  const managementSummaryLines = useMemo(() => {
+    const departmentLabel = reportDepartment === "all" ? "Şirket genelinde" : `${reportDepartment} departmanında`;
+    const peakLeave = futureLeaveDensityRows[0];
+    return [
+      `${departmentLabel} seçili dönemde ${workforceReport.hires} personel işe alındı, ${workforceReport.exits} personel işten çıktı ve net değişim ${workforceReport.net > 0 ? "+" : ""}${workforceReport.net} oldu.`,
+      `Dönem sonu personel sayısı önceki aya göre ${workforceClosingMonthDelta.difference > 0 ? "+" : ""}${workforceClosingMonthDelta.difference}, geçen yılın aynı dönemine göre ${workforceClosingYearDelta.difference > 0 ? "+" : ""}${workforceClosingYearDelta.difference} değişti.`,
+      `Devam oranı %${attendanceRate}, devamsızlık oranı %${absenceRate}; ${consecutiveAbsenceRows.length} personelde en az iki ardışık devamsızlık tespit edildi.`,
+      earlyExitRows.length
+        ? `${earlyExitRows.length} personel ilk 90 çalışma günü içinde ayrıldı.`
+        : "Seçili dönemde ilk 90 gün içinde ayrılan personel bulunmuyor.",
+      peakLeave
+        ? `Önümüzdeki 30 günde en yoğun izin/rapor tarihi ${formatDateTr(peakLeave.date)}: ${peakLeave.staffIds.length} personel.`
+        : "Önümüzdeki 30 gün için planlanmış izin veya rapor yoğunluğu bulunmuyor.",
+    ];
+  }, [
+    absenceRate,
+    attendanceRate,
+    consecutiveAbsenceRows.length,
+    earlyExitRows.length,
+    futureLeaveDensityRows,
+    reportDepartment,
+    workforceClosingMonthDelta.difference,
+    workforceClosingYearDelta.difference,
+    workforceReport.exits,
+    workforceReport.hires,
+    workforceReport.net,
+  ]);
   const incapacityRowsForMonth = useMemo(() => {
     const monthStart = `${incapacityReportMonth}-01`;
     const monthEnd = getMonthEndIso(incapacityReportMonth);
@@ -2614,6 +2771,8 @@ function App() {
       fixedStaff: newStaff.fixedStaff,
       startDate: newStaff.startDate,
       endDate: newStaff.endDate,
+      departureType: newStaff.departureType,
+      departureReason: newStaff.departureReason.trim(),
     };
 
     setBusy(true);
@@ -2631,6 +2790,8 @@ function App() {
         birthDate: "",
         startDate: todayIso(),
         endDate: "",
+        departureType: "",
+        departureReason: "",
         showOnSignatureSheet: true,
         fixedStaff: false,
       });
@@ -2672,6 +2833,8 @@ function App() {
         fixedStaff: Boolean(editingStaff.fixedStaff),
         startDate: editingStaff.startDate,
         endDate: editingStaff.endDate,
+        departureType: editingStaff.departureType?.trim() ?? "",
+        departureReason: editingStaff.departureReason?.trim() ?? "",
       });
       await saveAuditLog("Personel güncellendi", editingStaff.name.trim(), editingStaff.id);
       setProfileStaffId(editingStaff.id);
@@ -3975,14 +4138,21 @@ function App() {
   async function handleLoadReport() {
     setBusy(true);
     try {
-      const records = await loadAttendanceRange(reportStart, reportEnd);
-      setReportRows(
-        [...records].sort((a, b) => {
+      const ranges = getReportComparisonRanges(reportStart, reportEnd);
+      const [records, previousMonthRecords, previousYearRecords] = await Promise.all([
+        loadAttendanceRange(reportStart, reportEnd),
+        loadAttendanceRange(ranges.previousMonth.start, ranges.previousMonth.end),
+        loadAttendanceRange(ranges.previousYear.start, ranges.previousYear.end),
+      ]);
+      const sortRecords = (rows: AttendanceRecord[]) =>
+        [...rows].sort((a, b) => {
           const dateSort = a.date.localeCompare(b.date);
           if (dateSort !== 0) return dateSort;
           return (staffRankById.get(a.staffId) ?? 0) - (staffRankById.get(b.staffId) ?? 0);
-        }),
-      );
+        });
+      setReportRows(sortRecords(records));
+      setPreviousMonthReportRows(sortRecords(previousMonthRecords));
+      setPreviousYearReportRows(sortRecords(previousYearRecords));
     } catch {
       setMessage("Rapor alınamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
     } finally {
@@ -3997,14 +4167,21 @@ function App() {
     setReportEnd(end);
     setBusy(true);
     try {
-      const records = await loadAttendanceRange(start, end);
-      setReportRows(
-        [...records].sort((a, b) => {
+      const ranges = getReportComparisonRanges(start, end);
+      const [records, previousMonthRecords, previousYearRecords] = await Promise.all([
+        loadAttendanceRange(start, end),
+        loadAttendanceRange(ranges.previousMonth.start, ranges.previousMonth.end),
+        loadAttendanceRange(ranges.previousYear.start, ranges.previousYear.end),
+      ]);
+      const sortRecords = (rows: AttendanceRecord[]) =>
+        [...rows].sort((a, b) => {
           const dateSort = a.date.localeCompare(b.date);
           if (dateSort !== 0) return dateSort;
           return (staffRankById.get(a.staffId) ?? 0) - (staffRankById.get(b.staffId) ?? 0);
-        }),
-      );
+        });
+      setReportRows(sortRecords(records));
+      setPreviousMonthReportRows(sortRecords(previousMonthRecords));
+      setPreviousYearReportRows(sortRecords(previousYearRecords));
       setMessage("Bu ayın raporu hazırlandı.");
     } catch {
       setMessage("Aylık rapor alınamadı. Yönetici yetkisini ve internet bağlantısını kontrol edin.");
@@ -4068,6 +4245,49 @@ function App() {
     URL.revokeObjectURL(url);
   }
 
+  async function handleDownloadManagementSummaryPdf() {
+    try {
+      const pdfMakeModule = await import("pdfmake/build/pdfmake");
+      const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+      const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+      const pdfFonts = (pdfFontsModule.default ?? pdfFontsModule) as any;
+      configurePdfMake(pdfMake, pdfFonts);
+      const metricBody = [
+        ["Gösterge", "Dönem", "Önceki Ay", "Geçen Yıl"],
+        ["Dönem Sonu Personel", workforceReport.closing, previousMonthWorkforce.closing, previousYearWorkforce.closing],
+        ["İşe Alınan", workforceReport.hires, previousMonthWorkforce.hires, previousYearWorkforce.hires],
+        ["İşten Çıkan", workforceReport.exits, previousMonthWorkforce.exits, previousYearWorkforce.exits],
+        ["İşe Gelinen Gün", attendanceReport.attendedDays, previousMonthAttendance.attendedDays, previousYearAttendance.attendedDays],
+        ["Devam Oranı", `%${attendanceRate}`, "-", "-"],
+        ["Devamsızlık Oranı", `%${absenceRate}`, "-", "-"],
+        ["İzin/Rapor Günü", leaveReport.totalDays, "-", "-"],
+      ];
+      const docDefinition = {
+        pageSize: "A4",
+        pageMargins: [36, 36, 36, 36],
+        defaultStyle: { font: "Roboto", fontSize: 9, color: "#263a5d" },
+        content: [
+          { text: settings.companyName, fontSize: 11, bold: true, color: "#356cff" },
+          { text: "YÖNETİCİ İK ÖZETİ", fontSize: 19, bold: true, margin: [0, 5, 0, 3] },
+          { text: `${reportStart} - ${reportEnd}${reportDepartment !== "all" ? ` · ${reportDepartment}` : ""}`, color: "#64748b", margin: [0, 0, 0, 16] },
+          { text: "Dönem Değerlendirmesi", fontSize: 13, bold: true, margin: [0, 0, 0, 7] },
+          { ul: managementSummaryLines, margin: [0, 0, 0, 16] },
+          {
+            table: { headerRows: 1, widths: ["*", 60, 60, 60], body: metricBody },
+            layout: "lightHorizontalLines",
+            margin: [0, 0, 0, 16],
+          },
+          { text: "Kritik Listeler", fontSize: 13, bold: true, margin: [0, 0, 0, 7] },
+          { text: `Ardışık devamsızlık: ${consecutiveAbsenceRows.length} personel · İlk 90 günde ayrılan: ${earlyExitRows.length} personel · Eksik personel tarihi: ${workforceReport.missingDates}`, margin: [0, 0, 0, 10] },
+          { text: `Oluşturulma: ${new Date().toLocaleString("tr-TR")}`, fontSize: 7, color: "#94a3b8", margin: [0, 18, 0, 0] },
+        ],
+      };
+      pdfMake.createPdf(docDefinition).download(`yonetici-ik-ozeti-${reportStart}-${reportEnd}.pdf`);
+    } catch {
+      setMessage("Yönetici özeti PDF dosyası oluşturulamadı.");
+    }
+  }
+
   function handleExportExcel() {
     const detailRows: Array<Array<string | number>> = [
       ["Tarih", "Personel", "Departman", "Ünvan", "Giriş Saati", "Durum", "Gecikme Dk", "Açıklama"],
@@ -4111,13 +4331,15 @@ function App() {
       ["Eksik Giriş / Çıkış Tarihi", workforceReport.missingDates],
     ];
     const movementRows: Array<Array<string | number>> = [
-      ["Tarih", "Hareket", "Personel", "Departman", "Ünvan"],
+      ["Tarih", "Hareket", "Personel", "Departman", "Ünvan", "Çıkış Türü", "Çıkış Nedeni"],
       ...workforceReport.movements.map((row) => [
         row.date,
         row.kind === "hire" ? "İşe alındı" : "İşten çıktı",
         row.staff.name,
         row.staff.department,
         row.staff.title,
+        row.kind === "exit" ? departureTypeLabels[row.staff.departureType ?? ""] ?? row.staff.departureType ?? "" : "",
+        row.kind === "exit" ? row.staff.departureReason ?? "" : "",
       ]),
     ];
     const attendanceOverviewRows: Array<Array<string | number>> = [
@@ -4131,15 +4353,21 @@ function App() {
       ["İzinli Gün", attendanceReport.excusedDays],
       ["Toplam Gecikme (Dk)", attendanceReport.totalLateMinutes],
       ["Ortalama Gecikme (Dk)", attendanceReport.averageLateMinutes],
+      ["Beklenen Çalışma Günü", expectedAttendanceDays],
+      ["Devam Oranı (%)", attendanceRate],
+      ["Devamsızlık Oranı (%)", absenceRate],
     ];
     const leaveRows: Array<Array<string | number>> = [
       ["İzin / Rapor", "Personel", "Kayıt", "Gün", "Dakika"],
       ...leaveReport.categories.map((row) => [row.label, row.people, row.records, row.days, row.minutes]),
     ];
     const departmentRows: Array<Array<string | number>> = [
-      ["Departman", "Dönem Başı", "İşe Alınan", "İşten Çıkan", "Dönem Sonu", "Net", "Devir %", "Giriş Yapan", "Gelinen Gün", "Geç", "Gelmedi", "İzin/Rapor Günü"],
+      ["Departman", "Hedef Kadro", "Mevcut", "Hedef Farkı", "Dönem Başı", "İşe Alınan", "İşten Çıkan", "Net", "Devir %", "Giriş Yapan", "Gelinen Gün", "Geç", "Gelmedi", "İzin/Rapor Günü"],
       ...departmentComparisonRows.map((row) => [
         row.department,
+        settings.departmentHeadcountTargets[row.department] ?? 0,
+        row.closing,
+        (settings.departmentHeadcountTargets[row.department] ?? 0) - row.closing,
         row.opening,
         row.hires,
         row.exits,
@@ -4157,14 +4385,37 @@ function App() {
       ["Ay", "Dönem Başı", "İşe Alınan", "İşten Çıkan", "Dönem Sonu", "Net", "Devir %"],
       ...workforceTrendRows.map((row) => [row.month, row.opening, row.hires, row.exits, row.closing, row.net, row.turnoverRate]),
     ];
+    const comparisonRows: Array<Array<string | number>> = [
+      ["Gösterge", "Seçili Dönem", "Önceki Ay", "Geçen Yıl"],
+      ["Dönem Sonu Personel", workforceReport.closing, previousMonthWorkforce.closing, previousYearWorkforce.closing],
+      ["İşe Alınan", workforceReport.hires, previousMonthWorkforce.hires, previousYearWorkforce.hires],
+      ["İşten Çıkan", workforceReport.exits, previousMonthWorkforce.exits, previousYearWorkforce.exits],
+      ["İşe Gelinen Gün", attendanceReport.attendedDays, previousMonthAttendance.attendedDays, previousYearAttendance.attendedDays],
+    ];
+    const consecutiveRows: Array<Array<string | number>> = [
+      ["Personel", "Departman", "Ardışık Gün", "Başlangıç", "Bitiş"],
+      ...consecutiveAbsenceRows.map((row) => [staffById.get(row.staffId)?.name ?? "", staffById.get(row.staffId)?.department ?? "", row.maxConsecutiveDays, "", row.latestAbsenceDate]),
+    ];
+    const earlyExitExportRows: Array<Array<string | number>> = [
+      ["Personel", "Departman", "İşe Giriş", "İşten Çıkış", "Çalışma Süresi", "Çıkış Türü", "Neden"],
+      ...earlyExitRows.map((row) => [row.staff.name, row.staff.department, row.staff.startDate ?? "", row.staff.endDate ?? "", row.employmentDays, departureTypeLabels[row.staff.departureType ?? ""] ?? row.staff.departureType ?? "", row.staff.departureReason ?? ""]),
+    ];
+    const leaveDensityExportRows: Array<Array<string | number>> = [
+      ["Tarih", "Kişi Sayısı", "Personeller"],
+      ...futureLeaveDensityRows.map((row) => [row.date, row.staffIds.length, row.staffIds.map((staffId) => staffById.get(staffId)?.name).filter(Boolean).join(", ")]),
+    ];
     const personPart = reportStaffId === "all" ? "tum-personel" : staffById.get(reportStaffId)?.name ?? "personel";
     downloadExcelFile(`personel-rapor-${personPart}-${reportStart}-${reportEnd}.xls`, [
       { title: "Genel Bakış", rows: workforceRows },
+      { title: "Dönem Karşılaştırması", rows: comparisonRows },
       { title: "Personel Hareketleri", rows: movementRows },
       { title: "Devamlılık Göstergeleri", rows: attendanceOverviewRows },
       { title: "Aylık Özet", rows: summaryRows },
       { title: "Detay Kayıtları", rows: detailRows },
       { title: "İzin ve Raporlar", rows: leaveRows },
+      { title: "Ardışık Devamsızlık", rows: consecutiveRows },
+      { title: "İlk 90 Günde Ayrılan", rows: earlyExitExportRows },
+      { title: "İzin Yoğunluğu", rows: leaveDensityExportRows },
       { title: "Departman Karşılaştırması", rows: departmentRows },
       { title: "Son 12 Ay Personel Hareketi", rows: trendRows },
     ]);
@@ -5011,6 +5262,38 @@ function App() {
                   </div>
                 </section>
 
+                <section className="report-comparison-grid" aria-label="Dönem karşılaştırması">
+                  {[
+                    { label: "Dönem Sonu Personel", current: workforceReport.closing, month: workforceClosingMonthDelta, year: workforceClosingYearDelta },
+                    { label: "İşe Alınan", current: workforceReport.hires, month: getMetricDelta(workforceReport.hires, previousMonthWorkforce.hires), year: getMetricDelta(workforceReport.hires, previousYearWorkforce.hires) },
+                    { label: "İşten Çıkan", current: workforceReport.exits, month: getMetricDelta(workforceReport.exits, previousMonthWorkforce.exits), year: getMetricDelta(workforceReport.exits, previousYearWorkforce.exits) },
+                    { label: "İşe Gelinen Gün", current: attendanceReport.attendedDays, month: attendanceMonthDelta, year: attendanceYearDelta },
+                  ].map((item) => (
+                    <article className="report-comparison-card" key={item.label}>
+                      <span>{item.label}</span>
+                      <strong>{item.current}</strong>
+                      <small className={item.month.difference < 0 ? "is-negative" : item.month.difference > 0 ? "is-positive" : ""}>
+                        Önceki aya göre {item.month.difference > 0 ? "+" : ""}{item.month.difference} · %{item.month.percentage > 0 ? "+" : ""}{item.month.percentage}
+                      </small>
+                      <small className={item.year.difference < 0 ? "is-negative" : item.year.difference > 0 ? "is-positive" : ""}>
+                        Geçen yıla göre {item.year.difference > 0 ? "+" : ""}{item.year.difference} · %{item.year.percentage > 0 ? "+" : ""}{item.year.percentage}
+                      </small>
+                    </article>
+                  ))}
+                </section>
+
+                <section className="management-summary-panel">
+                  <div>
+                    <span>Otomatik Yönetici Özeti</span>
+                    <h2>Dönemin öne çıkanları</h2>
+                    <ul>{managementSummaryLines.map((line) => <li key={line}>{line}</li>)}</ul>
+                  </div>
+                  <button className="secondary-action" onClick={() => void handleDownloadManagementSummaryPdf()}>
+                    <FileDown size={18} aria-hidden="true" />
+                    Yönetici Özeti PDF
+                  </button>
+                </section>
+
                 <WorkforceTrendChart rows={workforceTrendRows} />
 
                 <section className="warning-panel-grid" aria-label="Yönetim uyarıları">
@@ -5059,7 +5342,7 @@ function App() {
                   </div>
                   <div className="table-scroll">
                     <table className="data-table">
-                      <thead><tr><th>Tarih</th><th>Hareket</th><th>Personel</th><th>Departman</th><th>Ünvan</th></tr></thead>
+                      <thead><tr><th>Tarih</th><th>Hareket</th><th>Personel</th><th>Departman</th><th>Ünvan</th><th>Çıkış Türü</th><th>Çıkış Nedeni</th></tr></thead>
                       <tbody>
                         {workforceReport.movements.map((row) => (
                           <tr key={row.id}>
@@ -5068,12 +5351,19 @@ function App() {
                             <td><button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}><strong>{row.staff.name}</strong></button></td>
                             <td>{row.staff.department}</td>
                             <td>{row.staff.title}</td>
+                            <td>{row.kind === "exit" ? departureTypeLabels[row.staff.departureType ?? ""] ?? row.staff.departureType ?? "-" : "-"}</td>
+                            <td>{row.kind === "exit" ? row.staff.departureReason || "-" : "-"}</td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
                   {!workforceReport.movements.length && <div className="empty-state">Seçili dönemde işe giriş veya çıkış bulunmuyor.</div>}
+                </section>
+                <section className="data-panel">
+                  <div className="panel-heading"><div><h2>İlk 90 Günde Ayrılanlar</h2><span>İşe başladıktan sonraki ilk 90 gün içinde çıkan personeller</span></div></div>
+                  <div className="table-scroll"><table className="data-table"><thead><tr><th>Personel</th><th>Departman</th><th>İşe Giriş</th><th>İşten Çıkış</th><th>Çalışma Süresi</th><th>Çıkış Türü</th><th>Neden</th></tr></thead><tbody>{earlyExitRows.map((row) => <tr key={row.staff.id}><td><button className="person-trigger" onClick={() => setSelectedStaffId(row.staff.id)}><strong>{row.staff.name}</strong></button></td><td>{row.staff.department}</td><td>{row.staff.startDate}</td><td>{row.staff.endDate}</td><td>{row.employmentDays} gün</td><td>{departureTypeLabels[row.staff.departureType ?? ""] ?? row.staff.departureType ?? "-"}</td><td>{row.staff.departureReason || "-"}</td></tr>)}</tbody></table></div>
+                  {!earlyExitRows.length && <div className="empty-state">Seçili dönemde ilk 90 gün içinde ayrılan personel yok.</div>}
                 </section>
               </>
             )}
@@ -5089,6 +5379,15 @@ function App() {
                   <Metric label="Gelinmeyen Gün" value={attendanceReport.absentDays} tone="red" />
                   <Metric label="Toplam Gecikme" value={attendanceReport.totalLateMinutes} suffix=" dk" tone="blue" />
                   <Metric label="Ort. Gecikme" value={attendanceReport.averageLateMinutes} suffix=" dk" />
+                  <Metric label="Devam Oranı" value={attendanceRate} suffix="%" tone="green" />
+                  <Metric label="Devamsızlık Oranı" value={absenceRate} suffix="%" tone="red" />
+                </section>
+                <section className="data-panel compact-report-list">
+                  <div className="panel-heading"><div><h2>Ardışık Devamsızlık Takibi</h2><span>En az iki iş günü üst üste gelmedi kaydı bulunanlar</span></div></div>
+                  <div className="report-person-list">
+                    {consecutiveAbsenceRows.map((row) => { const member = staffById.get(row.staffId); return member ? <button key={row.staffId} onClick={() => setSelectedStaffId(row.staffId)}><strong>{member.name}</strong><span>{row.maxConsecutiveDays} gün ardışık · son kayıt {formatDateTr(row.latestAbsenceDate)} · {member.department}</span></button> : null; })}
+                    {!consecutiveAbsenceRows.length && <div className="empty-state">Ardışık devamsızlık uyarısı yok.</div>}
+                  </div>
                 </section>
                 <ReportCharts dailyTrendRows={dailyTrendRows} departmentRows={departmentReportRows} topAbsentRows={topAbsentRows} onSelectStaff={setSelectedStaffId} />
                 {selectedPersonSummary && (
@@ -5167,6 +5466,11 @@ function App() {
                     </div>
                   </div>
                 </section>
+                <section className="data-panel">
+                  <div className="panel-heading"><div><h2>Gelecek 30 Gün İzin Yoğunluğu</h2><span>Aynı gün izinli veya raporlu olacak personeller</span></div></div>
+                  <div className="table-scroll"><table className="data-table"><thead><tr><th>Tarih</th><th>Gün</th><th>Kişi Sayısı</th><th>Personeller</th></tr></thead><tbody>{futureLeaveDensityRows.slice(0, 15).map((row) => <tr key={row.date}><td><strong>{formatDateTr(row.date)}</strong></td><td>{new Date(`${row.date}T12:00:00`).toLocaleDateString("tr-TR", { weekday: "long" })}</td><td>{row.staffIds.length}</td><td>{row.staffIds.map((staffId) => staffById.get(staffId)?.name).filter(Boolean).join(", ")}</td></tr>)}</tbody></table></div>
+                  {!futureLeaveDensityRows.length && <div className="empty-state">Önümüzdeki 30 gün için planlanmış izin veya rapor yok.</div>}
+                </section>
               </>
             )}
 
@@ -5174,7 +5478,7 @@ function App() {
               <>
                 <section className="data-panel">
                   <div className="panel-heading"><div><h2>Departman Karşılaştırması</h2><span>Personel hareketi, devamlılık ve izin göstergeleri</span></div></div>
-                  <div className="table-scroll"><table className="data-table department-comparison-table"><thead><tr><th>Departman</th><th>Dönem Başı</th><th>İşe Alınan</th><th>İşten Çıkan</th><th>Dönem Sonu</th><th>Net</th><th>Devir %</th><th>Giriş Yapan</th><th>Gelinen Gün</th><th>Geç</th><th>Gelmedi</th><th>İzin/Rapor Günü</th></tr></thead><tbody>{departmentComparisonRows.map((row) => <tr key={row.department}><td><strong>{row.department}</strong></td><td>{row.opening}</td><td className="positive-cell">{row.hires}</td><td className="negative-cell">{row.exits}</td><td>{row.closing}</td><td className={row.net < 0 ? "negative-cell" : "positive-cell"}>{row.net > 0 ? "+" : ""}{row.net}</td><td>{row.turnoverRate}%</td><td>{row.uniqueCheckIns}</td><td>{row.attendedDays}</td><td>{row.lateDays}</td><td>{row.absentDays}</td><td>{row.leaveDays}</td></tr>)}</tbody></table></div>
+                  <div className="table-scroll"><table className="data-table department-comparison-table"><thead><tr><th>Departman</th><th>Hedef Kadro</th><th>Mevcut</th><th>Hedef Farkı</th><th>Dönem Başı</th><th>İşe Alınan</th><th>İşten Çıkan</th><th>Net</th><th>Devir %</th><th>Giriş Yapan</th><th>Gelinen Gün</th><th>Geç</th><th>Gelmedi</th><th>İzin/Rapor Günü</th></tr></thead><tbody>{departmentComparisonRows.map((row) => { const target = settings.departmentHeadcountTargets[row.department] ?? 0; const gap = target ? target - row.closing : 0; return <tr key={row.department}><td><strong>{row.department}</strong></td><td><input className="headcount-target-input" type="number" min="0" value={target || ""} placeholder="0" aria-label={`${row.department} hedef kadro`} onChange={(event) => updateSettings({ departmentHeadcountTargets: { ...settings.departmentHeadcountTargets, [row.department]: Math.max(0, Number(event.target.value) || 0) } })} /></td><td><strong>{row.closing}</strong></td><td className={gap > 0 ? "negative-cell" : gap < 0 ? "positive-cell" : ""}>{target ? (gap > 0 ? `${gap} açık` : gap < 0 ? `${Math.abs(gap)} fazla` : "Hedefte") : "-"}</td><td>{row.opening}</td><td className="positive-cell">{row.hires}</td><td className="negative-cell">{row.exits}</td><td className={row.net < 0 ? "negative-cell" : "positive-cell"}>{row.net > 0 ? "+" : ""}{row.net}</td><td>{row.turnoverRate}%</td><td>{row.uniqueCheckIns}</td><td>{row.attendedDays}</td><td>{row.lateDays}</td><td>{row.absentDays}</td><td>{row.leaveDays}</td></tr>; })}</tbody></table></div>
                   {!departmentComparisonRows.length && <div className="empty-state">Karşılaştırılacak departman bulunmuyor.</div>}
                 </section>
               </>
@@ -6708,6 +7012,24 @@ function App() {
                     onChange={(event) => setNewStaff((previous) => ({ ...previous, endDate: event.target.value }))}
                   />
                 </label>
+                <label>
+                  İşten Çıkış Türü
+                  <select
+                    value={newStaff.departureType}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, departureType: event.target.value }))}
+                  >
+                    <option value="">Belirtilmedi</option>
+                    {Object.entries(departureTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  İşten Çıkış Nedeni
+                  <input
+                    value={newStaff.departureReason}
+                    onChange={(event) => setNewStaff((previous) => ({ ...previous, departureReason: event.target.value }))}
+                    placeholder="Kısa açıklama"
+                  />
+                </label>
                 <label className="checkbox-field">
                   <input
                     type="checkbox"
@@ -7416,6 +7738,17 @@ function StaffEditDialog({
               <label>
                 İşten Çıkış
                 <input type="date" value={staff.endDate ?? ""} onChange={(event) => update({ endDate: event.target.value })} />
+              </label>
+              <label>
+                İşten Çıkış Türü
+                <select value={staff.departureType ?? ""} onChange={(event) => update({ departureType: event.target.value })}>
+                  <option value="">Belirtilmedi</option>
+                  {Object.entries(departureTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label className="staff-edit-wide">
+                İşten Çıkış Nedeni
+                <input value={staff.departureReason ?? ""} onChange={(event) => update({ departureReason: event.target.value })} placeholder="Kısa açıklama" />
               </label>
               <div className="staff-edit-switches">
                 <label className="staff-edit-switch">
