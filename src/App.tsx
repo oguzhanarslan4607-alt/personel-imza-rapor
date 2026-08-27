@@ -1281,6 +1281,7 @@ function App() {
   const [timesheetDepartment, setTimesheetDepartment] = useState("all");
   const [timesheetSearch, setTimesheetSearch] = useState("");
   const [timesheetRows, setTimesheetRows] = useState<AttendanceRecord[]>([]);
+  const [timesheetEdit, setTimesheetEdit] = useState<AttendanceRecord | null>(null);
   const [profileStaffId, setProfileStaffId] = useState(
     () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
@@ -2352,6 +2353,57 @@ function App() {
       setTimesheetRows(await loadAttendanceRange(`${month}-01`, monthEndIso(`${month}-01`)));
     } catch {
       setMessage("Puantaj kayıtları okunamadı. Mevcut çizelge korunuyor.");
+    }
+  }
+
+  function openTimesheetEditor(member: StaffMember, date: string) {
+    const current = timesheetByStaffAndDate.get(`${member.id}:${date}`);
+    setTimesheetEdit(
+      current ?? {
+        id: makeAttendanceId(date, member.id),
+        staffId: member.id,
+        date,
+        checkInTime: settings.shiftStart,
+        status: "present",
+        lateReason: "",
+      },
+    );
+  }
+
+  async function handleSaveTimesheetRecord() {
+    if (!timesheetEdit) return;
+    setBusy(true);
+    try {
+      const status =
+        timesheetEdit.checkInTime && timesheetEdit.status !== "absent" && timesheetEdit.status !== "excused"
+          ? computeStatusFromTime(timesheetEdit.checkInTime, settings)
+          : timesheetEdit.status;
+      const record = { ...timesheetEdit, status, lateReason: timesheetEdit.lateReason.trim() };
+      await saveAttendanceRecord(record);
+      await saveAuditLog("Puantaj kaydı güncellendi", `${record.date} - ${staffById.get(record.staffId)?.name ?? "Personel"}`, record.staffId);
+      await refreshTimesheet();
+      setTimesheetEdit(null);
+      setMessage(`${formatDateTr(record.date)} puantaj kaydı kaydedildi.`);
+    } catch {
+      setMessage("Puantaj kaydı kaydedilemedi. Yönetici yetkisini ve bağlantıyı kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleDeleteTimesheetRecord() {
+    if (!timesheetEdit) return;
+    setBusy(true);
+    try {
+      await deleteAttendanceRecord(timesheetEdit.id);
+      await saveAuditLog("Puantaj kaydı silindi", `${timesheetEdit.date} - ${staffById.get(timesheetEdit.staffId)?.name ?? "Personel"}`, timesheetEdit.staffId);
+      await refreshTimesheet();
+      setTimesheetEdit(null);
+      setMessage(`${formatDateTr(timesheetEdit.date)} puantaj kaydı silindi.`);
+    } catch {
+      setMessage("Puantaj kaydı silinemedi. Yönetici yetkisini ve bağlantıyı kontrol edin.");
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -5028,6 +5080,52 @@ function App() {
               </div>
             </section>
 
+            {timesheetEdit && (
+              <section className="timesheet-editor" aria-label="Puantaj kaydı düzenle">
+                <div className="timesheet-editor-title">
+                  <p className="eyebrow">Puantaj İşlemi</p>
+                  <h3>{staffById.get(timesheetEdit.staffId)?.name ?? "Personel"} · {formatDateTr(timesheetEdit.date)}</h3>
+                </div>
+                <label>
+                  Durum
+                  <select
+                    value={timesheetEdit.status}
+                    onChange={(event) => setTimesheetEdit({ ...timesheetEdit, status: event.target.value as AttendanceStatus })}
+                  >
+                    {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                  </select>
+                </label>
+                <label>
+                  Giriş saati
+                  <input
+                    type="time"
+                    value={timesheetEdit.checkInTime}
+                    disabled={timesheetEdit.status === "absent" || timesheetEdit.status === "excused"}
+                    onChange={(event) => setTimesheetEdit({ ...timesheetEdit, checkInTime: event.target.value })}
+                  />
+                </label>
+                <label className="timesheet-editor-note">
+                  Açıklama
+                  <input
+                    value={timesheetEdit.lateReason}
+                    onChange={(event) => setTimesheetEdit({ ...timesheetEdit, lateReason: event.target.value })}
+                    placeholder="Geç kalma veya izin açıklaması"
+                  />
+                </label>
+                <div className="button-row">
+                  {timesheetByStaffAndDate.has(`${timesheetEdit.staffId}:${timesheetEdit.date}`) && (
+                    <button className="danger-action" type="button" onClick={() => void handleDeleteTimesheetRecord()} disabled={busy}>
+                      <Trash2 size={17} aria-hidden="true" /> Sil
+                    </button>
+                  )}
+                  <button className="secondary-action" type="button" onClick={() => setTimesheetEdit(null)} disabled={busy}>Vazgeç</button>
+                  <button className="primary-action" type="button" onClick={() => void handleSaveTimesheetRecord()} disabled={busy}>
+                    <Save size={17} aria-hidden="true" /> Kaydet
+                  </button>
+                </div>
+              </section>
+            )}
+
             <section className="timesheet-table-wrap">
               <table className="timesheet-table">
                 <thead>
@@ -5055,9 +5153,9 @@ function App() {
                         {timesheetDates.map((date) => {
                           const record = timesheetByStaffAndDate.get(`${member.id}:${date}`);
                           if (!record) {
-                            return <td key={date} className={isWeekendIso(date) ? "is-weekend" : ""}><span className={`timesheet-cell ${isWeekendIso(date) ? "is-off" : "is-empty"}`}>{isWeekendIso(date) ? "—" : ""}</span></td>;
+                            return <td key={date} className={isWeekendIso(date) ? "is-weekend" : ""}><button type="button" className={`timesheet-cell ${isWeekendIso(date) ? "is-off" : "is-empty"}`} onClick={() => openTimesheetEditor(member, date)} title="Puantaj kaydı ekle">{isWeekendIso(date) ? "—" : "+"}</button></td>;
                           }
-                          return <td key={date}><span className={`timesheet-cell is-${record.status}`} title={record.lateReason || statusLabels[record.status]}>{record.status === "present" ? "G" : record.status === "late" ? "Ge" : record.status === "excused" ? "İ" : "Y"}</span></td>;
+                          return <td key={date}><button type="button" className={`timesheet-cell is-${record.status}`} onClick={() => openTimesheetEditor(member, date)} title={`${statusLabels[record.status]} kaydını düzenle: ${record.lateReason || "Açıklama yok"}`}>{record.status === "present" ? "G" : record.status === "late" ? "Ge" : record.status === "excused" ? "İ" : "Y"}</button></td>;
                         })}
                       </tr>
                     );
