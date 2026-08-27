@@ -34,6 +34,7 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  Timer,
   Sun,
   Target,
   TriangleAlert,
@@ -152,6 +153,7 @@ import type {
 
 type TabKey =
   | "home"
+  | "timesheet"
   | "daily"
   | "print"
   | "reports"
@@ -278,9 +280,10 @@ const tabs: NavigationTab[] = [
   { key: "reports", label: "Raporlar", icon: BarChart3 },
   { key: "incapacity", label: "İş Göremezlik Raporu", icon: FileSpreadsheet },
   { key: "holidayWork", label: "Resmi Tatil Çalışan", icon: CalendarDays },
-  { key: "hourlyLeave", label: "Saatlik İzin", icon: CalendarCheck },
+  { key: "hourlyLeave", label: "Saatlik İzin Takibi", icon: CalendarCheck },
   { key: "annualLeave", label: "Yıllık İzin Takibi", icon: CalendarCheck },
-  { key: "unpaidLeave", label: "Ücretsiz İzin", icon: CalendarCheck },
+  { key: "unpaidLeave", label: "Ücretsiz İzin Takibi", icon: CalendarCheck },
+  { key: "timesheet", label: "Puantaj Takibi", icon: Timer },
   { key: "profiles", label: "Profil", icon: UserRound },
   { key: "bulk", label: "Toplu İşlem", icon: CheckSquare },
   { key: "staff", label: "Personel", icon: Users },
@@ -567,6 +570,29 @@ function isSundayIso(value: string) {
 function monthEndIso(value: string) {
   const base = value ? new Date(`${value}T12:00:00`) : new Date();
   return toLocalIsoDate(new Date(base.getFullYear(), base.getMonth() + 1, 0));
+}
+
+function monthDates(value: string) {
+  const [year, month] = value.split("-").map(Number);
+  if (!year || !month) return [];
+  const lastDay = new Date(year, month, 0).getDate();
+  return Array.from({ length: lastDay }, (_, index) => {
+    const day = index + 1;
+    return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  });
+}
+
+function formatTimesheetDay(value: string) {
+  const date = new Date(`${value}T12:00:00`);
+  return {
+    day: date.getDate(),
+    weekday: new Intl.DateTimeFormat("tr-TR", { weekday: "short" }).format(date),
+  };
+}
+
+function isWeekendIso(value: string) {
+  const day = new Date(`${value}T12:00:00`).getDay();
+  return day === 0 || day === 6;
 }
 
 function parseIsoDate(value: string) {
@@ -1251,6 +1277,10 @@ function App() {
   const [reportStaffId, setReportStaffId] = useState("all");
   const [reportDepartment, setReportDepartment] = useState("all");
   const [reportView, setReportView] = useState<ReportView>("overview");
+  const [timesheetMonth, setTimesheetMonth] = useState(todayIso().slice(0, 7));
+  const [timesheetDepartment, setTimesheetDepartment] = useState("all");
+  const [timesheetSearch, setTimesheetSearch] = useState("");
+  const [timesheetRows, setTimesheetRows] = useState<AttendanceRecord[]>([]);
   const [profileStaffId, setProfileStaffId] = useState(
     () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
@@ -1371,6 +1401,20 @@ function App() {
     [staff],
   );
   const departments = useMemo(() => getDepartments(staff), [staff]);
+  const timesheetDates = useMemo(() => monthDates(timesheetMonth), [timesheetMonth]);
+  const filteredTimesheetStaff = useMemo(
+    () =>
+      activeStaff.filter(
+        (member) =>
+          matchesStaffSearch(member, timesheetSearch) &&
+          (timesheetDepartment === "all" || member.department === timesheetDepartment),
+      ),
+    [activeStaff, timesheetDepartment, timesheetSearch],
+  );
+  const timesheetByStaffAndDate = useMemo(
+    () => new Map(timesheetRows.map((record) => [`${record.staffId}:${record.date}`, record])),
+    [timesheetRows],
+  );
   const filteredDailyStaff = useMemo(
     () =>
       activeStaff.filter(
@@ -2302,6 +2346,15 @@ function App() {
     }
   }
 
+  async function refreshTimesheet(month = timesheetMonth) {
+    if (!month) return;
+    try {
+      setTimesheetRows(await loadAttendanceRange(`${month}-01`, monthEndIso(`${month}-01`)));
+    } catch {
+      setMessage("Puantaj kayıtları okunamadı. Mevcut çizelge korunuyor.");
+    }
+  }
+
   async function refreshPrintArchives() {
     try {
       const records = await loadPrintArchives();
@@ -2425,6 +2478,11 @@ function App() {
     void refreshAttendance(selectedDate);
     void refreshDayLock(selectedDate);
   }, [canUseApp, admin?.uid, selectedDate]);
+
+  useEffect(() => {
+    if (!canUseApp || activeTab !== "timesheet") return;
+    void refreshTimesheet();
+  }, [activeTab, canUseApp, admin?.uid, timesheetMonth]);
 
   useEffect(() => {
     if (!canUseApp) return;
@@ -4897,6 +4955,120 @@ function App() {
               setActiveTab("profiles");
             }}
           />
+        )}
+
+        {activeTab === "timesheet" && (
+          <main className="workspace timesheet-workspace">
+            <section className="timesheet-hero">
+              <div>
+                <p className="eyebrow">Zaman Yönetimi</p>
+                <h2>Puantaj Çizelgesi</h2>
+                <p>Personelin günlük devam durumlarını seçilen ay için tek ekranda inceleyin.</p>
+              </div>
+              <div className="button-row">
+                <button className="secondary-action" onClick={() => void refreshTimesheet()} disabled={busy}>
+                  <RefreshCw size={18} aria-hidden="true" />
+                  Yenile
+                </button>
+                <button
+                  className="primary-action"
+                  onClick={() => {
+                    const rows = [
+                      ["Personel", "Birim", ...timesheetDates.map((date) => formatShortDate(date))],
+                      ...filteredTimesheetStaff.map((member) => [
+                        member.name,
+                        member.department,
+                        ...timesheetDates.map((date) => {
+                          const record = timesheetByStaffAndDate.get(`${member.id}:${date}`);
+                          return record ? statusLabels[record.status] : isWeekendIso(date) ? "Hafta sonu" : "Kayıt yok";
+                        }),
+                      ]),
+                    ];
+                    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\n");
+                    const link = document.createElement("a");
+                    link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
+                    link.download = `puantaj-${timesheetMonth}.csv`;
+                    link.click();
+                    URL.revokeObjectURL(link.href);
+                  }}
+                  disabled={!filteredTimesheetStaff.length}
+                >
+                  <FileDown size={18} aria-hidden="true" />
+                  CSV İndir
+                </button>
+              </div>
+            </section>
+
+            <section className="timesheet-toolbar" aria-label="Puantaj filtreleri">
+              <label>
+                Dönem
+                <input type="month" value={timesheetMonth} onChange={(event) => setTimesheetMonth(event.target.value)} />
+              </label>
+              <label>
+                Birim
+                <select value={timesheetDepartment} onChange={(event) => setTimesheetDepartment(event.target.value)}>
+                  <option value="all">Tüm birimler</option>
+                  {departments.map((department) => (
+                    <option key={department} value={department}>{department}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="timesheet-search">
+                Çalışan ara
+                <span className="input-with-icon">
+                  <Search size={18} aria-hidden="true" />
+                  <input value={timesheetSearch} onChange={(event) => setTimesheetSearch(event.target.value)} placeholder="Ad veya görev ara" />
+                </span>
+              </label>
+              <div className="timesheet-legend" aria-label="Durum açıklamaları">
+                <span><i className="is-present" /> Geldi</span>
+                <span><i className="is-late" /> Geç</span>
+                <span><i className="is-excused" /> İzinli</span>
+                <span><i className="is-absent" /> Gelmedi</span>
+              </div>
+            </section>
+
+            <section className="timesheet-table-wrap">
+              <table className="timesheet-table">
+                <thead>
+                  <tr>
+                    <th className="timesheet-person">Personel</th>
+                    <th className="timesheet-department">Birim</th>
+                    <th className="timesheet-total">Planlanan</th>
+                    <th className="timesheet-total">Kayıtlı</th>
+                    {timesheetDates.map((date) => {
+                      const formatted = formatTimesheetDay(date);
+                      return <th className={isWeekendIso(date) ? "is-weekend" : ""} key={date}><b>{formatted.day}</b><small>{formatted.weekday}</small></th>;
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTimesheetStaff.map((member) => {
+                    const memberRecords = timesheetRows.filter((record) => record.staffId === member.id);
+                    const plannedDays = timesheetDates.filter((date) => !isWeekendIso(date)).length;
+                    return (
+                      <tr key={member.id}>
+                        <td className="timesheet-person"><strong>{member.name}</strong><span>{member.title || "Personel"}</span></td>
+                        <td className="timesheet-department">{member.department || "—"}</td>
+                        <td className="timesheet-total">{plannedDays} gün</td>
+                        <td className="timesheet-total">{memberRecords.length} gün</td>
+                        {timesheetDates.map((date) => {
+                          const record = timesheetByStaffAndDate.get(`${member.id}:${date}`);
+                          if (!record) {
+                            return <td key={date} className={isWeekendIso(date) ? "is-weekend" : ""}><span className={`timesheet-cell ${isWeekendIso(date) ? "is-off" : "is-empty"}`}>{isWeekendIso(date) ? "—" : ""}</span></td>;
+                          }
+                          return <td key={date}><span className={`timesheet-cell is-${record.status}`} title={record.lateReason || statusLabels[record.status]}>{record.status === "present" ? "G" : record.status === "late" ? "Ge" : record.status === "excused" ? "İ" : "Y"}</span></td>;
+                        })}
+                      </tr>
+                    );
+                  })}
+                  {!filteredTimesheetStaff.length && (
+                    <tr><td className="timesheet-empty" colSpan={timesheetDates.length + 4}>Seçili filtrelerle eşleşen personel bulunamadı.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </section>
+          </main>
         )}
 
         {activeTab === "daily" && (
