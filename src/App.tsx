@@ -592,7 +592,7 @@ function formatTimesheetDay(value: string) {
 
 function isWeekendIso(value: string) {
   const day = new Date(`${value}T12:00:00`).getDay();
-  return day === 0 || day === 6;
+  return day === 0;
 }
 
 function parseIsoDate(value: string) {
