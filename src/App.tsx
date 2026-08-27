@@ -1079,6 +1079,93 @@ function downloadExcelFile(filename: string, sections: Array<{ title: string; ro
   URL.revokeObjectURL(url);
 }
 
+function downloadFormalTimesheetExcel(
+  filename: string,
+  companyName: string,
+  month: string,
+  dates: string[],
+  staff: StaffMember[],
+  recordsByStaffAndDate: Map<string, AttendanceRecord>,
+) {
+  const summaryHeaders = ["Ç.G.", "G.M.", "İZİN", "GEÇ"];
+  const headerDates = dates
+    .map((date) => {
+      const formatted = formatTimesheetDay(date);
+      return `<th class="date-head ${isWeekendIso(date) ? "sunday" : ""}">${formatted.day}<br /><span>${excelEscape(formatted.weekday)}</span></th>`;
+    })
+    .join("");
+  const bodyRows = staff
+    .map((member, index) => {
+      const counts = { worked: 0, absent: 0, excused: 0, late: 0 };
+      const dayCells = dates
+        .map((date) => {
+          const record = recordsByStaffAndDate.get(`${member.id}:${date}`);
+          if (!record) return `<td class="${isWeekendIso(date) ? "sunday" : ""}">${isWeekendIso(date) ? "P" : ""}</td>`;
+          if (record.status === "present") counts.worked += 1;
+          if (record.status === "late") {
+            counts.worked += 1;
+            counts.late += 1;
+          }
+          if (record.status === "absent") counts.absent += 1;
+          if (record.status === "excused") counts.excused += 1;
+          const symbol = record.status === "present" ? "G" : record.status === "late" ? "GE" : record.status === "excused" ? "İ" : "X";
+          return `<td class="${isWeekendIso(date) ? "sunday " : ""}status-${record.status}">${symbol}</td>`;
+        })
+        .join("");
+      return `<tr>
+        <td>${index + 1}</td>
+        <td class="identity">${excelEscape(member.nationalId || "-")}</td>
+        <td class="name">${excelEscape(member.name)}</td>
+        <td>${excelEscape(member.department || "-")}</td>
+        ${dayCells}
+        <td class="summary">${counts.worked}</td>
+        <td class="summary absent">${counts.absent}</td>
+        <td class="summary excused">${counts.excused}</td>
+        <td class="summary late">${counts.late}</td>
+      </tr>`;
+    })
+    .join("");
+  const columnCount = dates.length + 8;
+  const html = `
+    <html><head><meta charset="utf-8" /><style>
+      body { font-family: Arial, sans-serif; color: #1f2937; }
+      table { border-collapse: collapse; }
+      th, td { border: 1px solid #8a97a8; padding: 4px 5px; text-align: center; font-size: 9pt; mso-number-format:"\\@"; }
+      .title { background: #203b66; color: #fff; font-size: 14pt; font-weight: bold; text-align: center; padding: 10px; }
+      .meta { background: #eef3fa; color: #203b66; font-weight: bold; text-align: left; padding: 7px; }
+      .legend { background: #f8fafc; color: #475569; text-align: left; font-size: 8.5pt; padding: 7px; }
+      .head { background: #dce7f8; color: #172b4d; font-weight: bold; vertical-align: bottom; }
+      .date-head { background: #edf2f8; color: #172b4d; font-weight: bold; min-width: 25px; padding: 5px 2px; }
+      .date-head span { font-size: 7.5pt; color: #52657f; }
+      .sunday { background: #fff1bd !important; }
+      .identity { text-align: left; min-width: 95px; }
+      .name { text-align: left; min-width: 150px; font-weight: bold; }
+      .status-present { color: #157347; font-weight: bold; }
+      .status-late { color: #9a6700; background: #fff4d5; font-weight: bold; }
+      .status-excused { color: #315bc4; background: #e8eeff; font-weight: bold; }
+      .status-absent, .absent { color: #b42318; background: #fff0ef; font-weight: bold; }
+      .summary { background: #f0f4f8; font-weight: bold; }
+      .excused { color: #315bc4; } .late { color: #9a6700; }
+      .signature { height: 38px; text-align: left; vertical-align: bottom; }
+    </style></head><body>
+      <table>
+        <tr><td class="title" colspan="${columnCount}">${excelEscape(companyName || "FİRMA")} — AYLIK PUANTAJ ÇİZELGESİ</td></tr>
+        <tr><td class="meta" colspan="${columnCount}">DÖNEM: ${excelEscape(month)} &nbsp;&nbsp; | &nbsp;&nbsp; Düzenlenme tarihi: ${excelEscape(new Date().toLocaleDateString("tr-TR"))}</td></tr>
+        <tr><td class="legend" colspan="${columnCount}"><b>Açıklama:</b> G = Geldi, GE = Geç geldi, X = Gelmedi, İ = İzinli, P = Pazar / hafta tatili. Ç.G. = Çalışılan gün, G.M. = Gelmedi gün sayısı.</td></tr>
+        <tr><th class="head">Sıra</th><th class="head">T.C. Kimlik No</th><th class="head">Adı Soyadı</th><th class="head">Birim</th>${headerDates}${summaryHeaders.map((header) => `<th class="head">${header}</th>`).join("")}</tr>
+        ${bodyRows}
+        <tr><td class="signature" colspan="${Math.floor(columnCount / 2)}"><b>Hazırlayan:</b><br /><br />Ad Soyad / İmza</td><td class="signature" colspan="${columnCount - Math.floor(columnCount / 2)}"><b>Onaylayan:</b><br /><br />Ad Soyad / İmza</td></tr>
+      </table>
+    </body></html>`;
+  const blob = new Blob(["\ufeff", html], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
 function downloadProfileSectionExcel(table: ProfileExportTable) {
   downloadExcelFile(
     `${safeFilename(table.staffName)}-${safeFilename(table.title)}.xls`,
@@ -2483,7 +2570,14 @@ function App() {
   }
 
   function handleExportTimesheetExcel() {
-    downloadExcelFile(`puantaj-${timesheetMonth}.xls`, [{ title: `${timesheetMonth} Puantaj Çizelgesi`, rows: getTimesheetExportRows() }]);
+    downloadFormalTimesheetExcel(
+      `puantaj-${timesheetMonth}.xls`,
+      settings.companyName,
+      timesheetMonth,
+      timesheetDates,
+      filteredTimesheetStaff,
+      timesheetByStaffAndDate,
+    );
   }
 
   async function handleExportTimesheetPdf() {
