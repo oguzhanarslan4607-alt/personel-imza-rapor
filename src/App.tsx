@@ -1286,7 +1286,7 @@ function App() {
   const [timesheetBulkStatus, setTimesheetBulkStatus] = useState<AttendanceStatus>("present");
   const [timesheetBulkTime, setTimesheetBulkTime] = useState(settings.shiftStart);
   const [timesheetBulkReason, setTimesheetBulkReason] = useState("");
-  const [timesheetBulkOnlyEmpty, setTimesheetBulkOnlyEmpty] = useState(true);
+  const [timesheetBulkOnlyEmpty, setTimesheetBulkOnlyEmpty] = useState(false);
   const [profileStaffId, setProfileStaffId] = useState(
     () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
@@ -2448,6 +2448,10 @@ function App() {
               }) satisfies AttendanceRecord,
           ),
       );
+      if (!records.length) {
+        setMessage("İşlenecek kayıt bulunamadı. Yalnızca boş hücreler seçeneği açıksa mevcut kayıtlar atlanır.");
+        return;
+      }
       await Promise.all(records.map((record) => saveAttendanceRecord(record)));
       await saveAuditLog("Toplu puantaj işlendi", `${timesheetSelectedDates.length} tarih, ${records.length} kayıt`);
       await refreshTimesheet();
@@ -5169,7 +5173,7 @@ function App() {
               </label>
               <label className="timesheet-bulk-check">
                 <input type="checkbox" checked={timesheetBulkOnlyEmpty} onChange={(event) => setTimesheetBulkOnlyEmpty(event.target.checked)} />
-                Yalnızca boş hücrelere uygula
+                Sadece boş hücreleri doldur
               </label>
               <button className="primary-action" type="button" onClick={() => void handleApplyTimesheetBulk()} disabled={busy || !timesheetSelectedDates.length || !filteredTimesheetStaff.length}>
                 <CheckSquare size={18} aria-hidden="true" /> Toplu uygula
