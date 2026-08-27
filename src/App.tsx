@@ -1282,6 +1282,11 @@ function App() {
   const [timesheetSearch, setTimesheetSearch] = useState("");
   const [timesheetRows, setTimesheetRows] = useState<AttendanceRecord[]>([]);
   const [timesheetEdit, setTimesheetEdit] = useState<AttendanceRecord | null>(null);
+  const [timesheetSelectedDates, setTimesheetSelectedDates] = useState<string[]>([]);
+  const [timesheetBulkStatus, setTimesheetBulkStatus] = useState<AttendanceStatus>("present");
+  const [timesheetBulkTime, setTimesheetBulkTime] = useState(settings.shiftStart);
+  const [timesheetBulkReason, setTimesheetBulkReason] = useState("");
+  const [timesheetBulkOnlyEmpty, setTimesheetBulkOnlyEmpty] = useState(true);
   const [profileStaffId, setProfileStaffId] = useState(
     () => parseAppNavigation(window.location.search, tabKeys, "home").profileStaffId,
   );
@@ -2404,6 +2409,110 @@ function App() {
       setMessage("Puantaj kaydı silinemedi. Yönetici yetkisini ve bağlantıyı kontrol edin.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  function toggleTimesheetDate(date: string) {
+    setTimesheetSelectedDates((previous) =>
+      previous.includes(date) ? previous.filter((item) => item !== date) : [...previous, date],
+    );
+  }
+
+  async function handleApplyTimesheetBulk() {
+    if (!timesheetSelectedDates.length || !filteredTimesheetStaff.length) {
+      setMessage("Önce en az bir tarih ve işlem uygulanacak personeli seçin.");
+      return;
+    }
+
+    const targetCount = filteredTimesheetStaff.length * timesheetSelectedDates.length;
+    const scope = timesheetDepartment === "all" ? "filtredeki tüm personel" : `${timesheetDepartment} birimi`;
+    if (!window.confirm(`${timesheetSelectedDates.length} tarih için ${scope} üzerinde en fazla ${targetCount} puantaj kaydı oluşturulacak. Devam edilsin mi?`)) return;
+
+    setBusy(true);
+    try {
+      const records = filteredTimesheetStaff.flatMap((member) =>
+        timesheetSelectedDates
+          .filter((date) => !timesheetBulkOnlyEmpty || !timesheetByStaffAndDate.has(`${member.id}:${date}`))
+          .map(
+            (date) =>
+              ({
+                id: makeAttendanceId(date, member.id),
+                staffId: member.id,
+                date,
+                checkInTime: timesheetBulkStatus === "absent" || timesheetBulkStatus === "excused" ? "" : timesheetBulkTime,
+                status:
+                  timesheetBulkStatus === "absent" || timesheetBulkStatus === "excused"
+                    ? timesheetBulkStatus
+                    : computeStatusFromTime(timesheetBulkTime, settings),
+                lateReason: timesheetBulkReason.trim(),
+              }) satisfies AttendanceRecord,
+          ),
+      );
+      await Promise.all(records.map((record) => saveAttendanceRecord(record)));
+      await saveAuditLog("Toplu puantaj işlendi", `${timesheetSelectedDates.length} tarih, ${records.length} kayıt`);
+      await refreshTimesheet();
+      setMessage(`${records.length} puantaj kaydı toplu olarak işlendi.`);
+    } catch {
+      setMessage("Toplu puantaj işlemi kaydedilemedi. Yönetici yetkisini ve bağlantıyı kontrol edin.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function getTimesheetExportRows() {
+    return [
+      ["Personel", "Birim", "Planlanan", "Kayıtlı", ...timesheetDates.map((date) => formatShortDate(date))],
+      ...filteredTimesheetStaff.map((member) => {
+        const memberRecords = timesheetRows.filter((record) => record.staffId === member.id);
+        return [
+          member.name,
+          member.department || "-",
+          `${timesheetDates.filter((date) => !isWeekendIso(date)).length} gün`,
+          `${memberRecords.length} gün`,
+          ...timesheetDates.map((date) => {
+            const record = timesheetByStaffAndDate.get(`${member.id}:${date}`);
+            return record ? statusLabels[record.status] : isWeekendIso(date) ? "Hafta sonu" : "-";
+          }),
+        ];
+      }),
+    ];
+  }
+
+  function handleExportTimesheetExcel() {
+    downloadExcelFile(`puantaj-${timesheetMonth}.xls`, [{ title: `${timesheetMonth} Puantaj Çizelgesi`, rows: getTimesheetExportRows() }]);
+  }
+
+  async function handleExportTimesheetPdf() {
+    try {
+      const pdfMakeModule = await import("pdfmake/build/pdfmake");
+      const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+      const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+      configurePdfMake(pdfMake, (pdfFontsModule.default ?? pdfFontsModule) as any);
+      const rows = getTimesheetExportRows();
+      pdfMake.createPdf({
+        pageSize: "A3",
+        pageOrientation: "landscape",
+        pageMargins: [18, 24, 18, 24],
+        defaultStyle: { font: "Roboto", fontSize: 5.8, color: "#172033" },
+        content: [
+          { text: settings.companyName, bold: true, fontSize: 12, color: "#2455d9" },
+          { text: `${timesheetMonth} Puantaj Çizelgesi`, bold: true, fontSize: 10, margin: [0, 2, 0, 10] },
+          {
+            table: { headerRows: 1, widths: [80, 55, 38, 32, ...timesheetDates.map(() => "auto")], body: rows },
+            layout: {
+              fillColor: (rowIndex: number) => rowIndex === 0 ? "#e8eeff" : rowIndex % 2 === 0 ? "#f7f9fc" : null,
+              hLineColor: () => "#cbd5e1",
+              vLineColor: () => "#cbd5e1",
+              paddingLeft: () => 2,
+              paddingRight: () => 2,
+              paddingTop: () => 3,
+              paddingBottom: () => 3,
+            },
+          },
+        ],
+      }).download(`puantaj-${timesheetMonth}.pdf`);
+    } catch {
+      setMessage("Puantaj PDF'i oluşturulamadı.");
     }
   }
 
@@ -5022,33 +5131,49 @@ function App() {
                   <RefreshCw size={18} aria-hidden="true" />
                   Yenile
                 </button>
-                <button
-                  className="primary-action"
-                  onClick={() => {
-                    const rows = [
-                      ["Personel", "Birim", ...timesheetDates.map((date) => formatShortDate(date))],
-                      ...filteredTimesheetStaff.map((member) => [
-                        member.name,
-                        member.department,
-                        ...timesheetDates.map((date) => {
-                          const record = timesheetByStaffAndDate.get(`${member.id}:${date}`);
-                          return record ? statusLabels[record.status] : isWeekendIso(date) ? "Hafta sonu" : "Kayıt yok";
-                        }),
-                      ]),
-                    ];
-                    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(";")).join("\n");
-                    const link = document.createElement("a");
-                    link.href = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: "text/csv;charset=utf-8" }));
-                    link.download = `puantaj-${timesheetMonth}.csv`;
-                    link.click();
-                    URL.revokeObjectURL(link.href);
-                  }}
-                  disabled={!filteredTimesheetStaff.length}
-                >
+                <button className="secondary-action" onClick={handleExportTimesheetExcel} disabled={!filteredTimesheetStaff.length}>
+                  <FileSpreadsheet size={18} aria-hidden="true" />
+                  Excel İndir
+                </button>
+                <button className="primary-action" onClick={() => void handleExportTimesheetPdf()} disabled={!filteredTimesheetStaff.length}>
                   <FileDown size={18} aria-hidden="true" />
-                  CSV İndir
+                  PDF İndir
                 </button>
               </div>
+            </section>
+
+            <section className="timesheet-bulk" aria-label="Toplu puantaj işlemi">
+              <div className="timesheet-bulk-title">
+                <p className="eyebrow">Toplu İşlem</p>
+                <h3>{timesheetSelectedDates.length ? `${timesheetSelectedDates.length} tarih seçildi` : "Tablo başlığından tarih seçin"}</h3>
+              </div>
+              <div className="timesheet-date-actions">
+                <button type="button" className="secondary-action" onClick={() => setTimesheetSelectedDates(timesheetDates.filter((date) => !isWeekendIso(date)))}>
+                  İş günlerini seç
+                </button>
+                <button type="button" className="text-action" onClick={() => setTimesheetSelectedDates([])}>Temizle</button>
+              </div>
+              <label>
+                Durum
+                <select value={timesheetBulkStatus} onChange={(event) => setTimesheetBulkStatus(event.target.value as AttendanceStatus)}>
+                  {Object.entries(statusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                Giriş saati
+                <input type="time" value={timesheetBulkTime} disabled={timesheetBulkStatus === "absent" || timesheetBulkStatus === "excused"} onChange={(event) => setTimesheetBulkTime(event.target.value)} />
+              </label>
+              <label className="timesheet-bulk-note">
+                Açıklama
+                <input value={timesheetBulkReason} onChange={(event) => setTimesheetBulkReason(event.target.value)} placeholder="İsteğe bağlı açıklama" />
+              </label>
+              <label className="timesheet-bulk-check">
+                <input type="checkbox" checked={timesheetBulkOnlyEmpty} onChange={(event) => setTimesheetBulkOnlyEmpty(event.target.checked)} />
+                Yalnızca boş hücrelere uygula
+              </label>
+              <button className="primary-action" type="button" onClick={() => void handleApplyTimesheetBulk()} disabled={busy || !timesheetSelectedDates.length || !filteredTimesheetStaff.length}>
+                <CheckSquare size={18} aria-hidden="true" /> Toplu uygula
+              </button>
             </section>
 
             <section className="timesheet-toolbar" aria-label="Puantaj filtreleri">
@@ -5136,7 +5261,8 @@ function App() {
                     <th className="timesheet-total">Kayıtlı</th>
                     {timesheetDates.map((date) => {
                       const formatted = formatTimesheetDay(date);
-                      return <th className={isWeekendIso(date) ? "is-weekend" : ""} key={date}><b>{formatted.day}</b><small>{formatted.weekday}</small></th>;
+                      const selected = timesheetSelectedDates.includes(date);
+                      return <th className={`${isWeekendIso(date) ? "is-weekend " : ""}${selected ? "is-selected" : ""}`} key={date}><button type="button" className="timesheet-date-select" onClick={() => toggleTimesheetDate(date)} title={`${formatted.day} ${formatted.weekday} tarihini ${selected ? "seçimden çıkar" : "seç"}`}><b>{formatted.day}</b><small>{formatted.weekday}</small></button></th>;
                     })}
                   </tr>
                 </thead>

@@ -1504,6 +1504,7 @@ button:disabled {
 .timesheet-workspace {
   display: grid;
   gap: 16px;
+  min-width: 0;
 }
 
 .timesheet-hero,
@@ -1592,6 +1593,7 @@ button:disabled {
 .timesheet-legend .is-absent { background: #d95b5b; }
 
 .timesheet-table-wrap {
+  max-width: 100%;
   overflow: auto;
   box-shadow: 0 10px 24px rgba(23, 32, 42, 0.04);
 }
@@ -1606,6 +1608,59 @@ button:disabled {
   border-radius: 10px;
   background: #f5f8ff;
 }
+
+.timesheet-bulk {
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) auto 135px 130px minmax(180px, 1fr) auto auto;
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #b9c9ff;
+  border-radius: 10px;
+  background: #f5f8ff;
+}
+
+.timesheet-bulk-title h3 { margin: 0; color: var(--ink); font-size: 15px; }
+
+.timesheet-bulk label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.timesheet-bulk input:not([type="checkbox"]),
+.timesheet-bulk select {
+  min-height: 40px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  color: var(--ink);
+  background: var(--panel);
+}
+
+.timesheet-date-actions { display: flex; align-items: center; gap: 8px; }
+.timesheet-date-actions .secondary-action { white-space: nowrap; }
+
+.text-action {
+  padding: 8px 5px;
+  color: var(--blue);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.timesheet-bulk-check {
+  display: inline-flex !important;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  padding-bottom: 11px;
+  gap: 7px !important;
+  white-space: nowrap;
+}
+
+.timesheet-bulk-check input { width: 16px; height: 16px; accent-color: var(--teal); }
 
 .timesheet-editor-title h3 {
   margin: 0;
@@ -1664,6 +1719,18 @@ button:disabled {
 .timesheet-table th small {
   display: block;
 }
+
+.timesheet-date-select {
+  width: 100%;
+  padding: 4px 0;
+  border-radius: 5px;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.timesheet-table th.is-selected { background: #dce6ff; }
+.timesheet-table th.is-selected .timesheet-date-select { color: #174cb8; background: #c7d8ff; }
 
 .timesheet-table th b { font-size: 15px; }
 .timesheet-table th small { margin-top: 3px; color: var(--muted); font-size: 10px; text-transform: capitalize; }
