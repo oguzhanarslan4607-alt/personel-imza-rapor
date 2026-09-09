@@ -470,6 +470,29 @@ function findIslamicHolidayStart(year: number, month: number, day: number) {
 }
 
 function getTurkiyePublicHolidays(year: number): PublicHoliday[] {
+  // 2027 dates are explicitly defined from the official holiday calendar used by this company.
+  // This avoids calendar-variant differences for religious holidays and preserves the 19 Mayıs overlap.
+  if (year === 2027) {
+    return [
+      { date: "2027-01-01", name: "Yılbaşı", duration: "full" },
+      { date: "2027-03-08", name: "Ramazan Bayramı Arefesi", duration: "half" },
+      { date: "2027-03-09", name: "Ramazan Bayramı 1. Gün", duration: "full" },
+      { date: "2027-03-10", name: "Ramazan Bayramı 2. Gün", duration: "full" },
+      { date: "2027-03-11", name: "Ramazan Bayramı 3. Gün", duration: "full" },
+      { date: "2027-04-23", name: "Ulusal Egemenlik ve Çocuk Bayramı", duration: "full" },
+      { date: "2027-05-01", name: "Emek ve Dayanışma Günü", duration: "full" },
+      { date: "2027-05-15", name: "Kurban Bayramı Arefesi", duration: "half" },
+      { date: "2027-05-16", name: "Kurban Bayramı 1. Gün", duration: "full" },
+      { date: "2027-05-17", name: "Kurban Bayramı 2. Gün", duration: "full" },
+      { date: "2027-05-18", name: "Kurban Bayramı 3. Gün", duration: "full" },
+      { date: "2027-05-19", name: "Kurban Bayramı 4. Gün + Atatürk'ü Anma, Gençlik ve Spor Bayramı", duration: "full" },
+      { date: "2027-07-15", name: "Demokrasi ve Milli Birlik Günü", duration: "full" },
+      { date: "2027-08-30", name: "Zafer Bayramı", duration: "full" },
+      { date: "2027-10-28", name: "Cumhuriyet Bayramı Arefesi", duration: "half" },
+      { date: "2027-10-29", name: "Cumhuriyet Bayramı", duration: "full" },
+    ];
+  }
+
   const holidays: PublicHoliday[] = [
     { date: `${year}-01-01`, name: "Yılbaşı", duration: "full" },
     { date: `${year}-04-23`, name: "Ulusal Egemenlik ve Çocuk Bayramı", duration: "full" },
