@@ -4613,8 +4613,8 @@ function App() {
   }
 
   async function handleDownloadAttendanceReportPdf() {
-    if (!filteredReportRows.length) {
-      setMessage("PDF için önce en az bir devam kaydı getirin.");
+    if (!staff.length) {
+      setMessage("PDF oluşturmak için önce en az bir personel kaydı ekleyin.");
       return;
     }
 
@@ -4675,6 +4675,7 @@ function App() {
         paddingTop: () => 5,
         paddingBottom: () => 5,
       };
+      const hasRecords = filteredReportRows.length > 0;
       const docDefinition = {
         pageSize: "A4",
         pageMargins: [34, 38, 34, 38],
@@ -4707,6 +4708,8 @@ function App() {
             margin: [0, 0, 0, 16],
           },
           { text: "Personel Bazlı Özet", fontSize: 12, bold: true, color: "#162b4d", margin: [0, 0, 0, 7] },
+          ...(hasRecords
+            ? [
           {
             table: { headerRows: 1, widths: ["*", 56, 34, 34, 28, 40, 35, 45], body: summaryBody },
             layout: tableLayout,
@@ -4716,6 +4719,16 @@ function App() {
             table: { headerRows: 1, widths: [59, "*", 58, 36, 47, 41, "*"], body: detailBody },
             layout: tableLayout,
           },
+              ]
+            : [
+                {
+                  table: {
+                    widths: ["*"],
+                    body: [[{ text: "Seçilen tarih aralığında, personel veya departman filtresinde devam kaydı bulunmuyor.", color: "#8a5b00", bold: true, margin: [10, 10, 10, 10] }]],
+                  },
+                  layout: { fillColor: () => "#fff7df", hLineColor: () => "#f1c66e", vLineColor: () => "#f1c66e" },
+                },
+              ]),
         ],
         styles: { tableHeader: { bold: true } },
         footer: (currentPage: number, pageCount: number) => ({
@@ -5837,7 +5850,7 @@ function App() {
                 <FileSpreadsheet size={18} aria-hidden="true" />
                 Excel
               </button>
-              <button className="secondary-action" onClick={() => void handleDownloadAttendanceReportPdf()} disabled={!filteredReportRows.length}>
+              <button className="secondary-action" onClick={() => void handleDownloadAttendanceReportPdf()} disabled={!staff.length}>
                 <FileDown size={18} aria-hidden="true" />
                 PDF Rapor
               </button>
