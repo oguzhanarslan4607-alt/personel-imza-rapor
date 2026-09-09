@@ -4612,6 +4612,129 @@ function App() {
     }
   }
 
+  async function handleDownloadAttendanceReportPdf() {
+    if (!filteredReportRows.length) {
+      setMessage("PDF için önce en az bir devam kaydı getirin.");
+      return;
+    }
+
+    try {
+      const pdfMakeModule = await import("pdfmake/build/pdfmake");
+      const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+      const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+      configurePdfMake(pdfMake, (pdfFontsModule.default ?? pdfFontsModule) as any);
+
+      const period = `${formatDateTr(reportStart)} - ${formatDateTr(reportEnd)}`;
+      const filterParts = [
+        reportDepartment === "all" ? "Tüm departmanlar" : reportDepartment,
+        reportStaffId === "all" ? "Tüm personel" : staffById.get(reportStaffId)?.name ?? "Personel",
+      ];
+      const summaryBody = [
+        ["Personel", "Birim", "Kayıt", "Geldi", "Geç", "Gelmedi", "İzinli", "Gecikme"],
+        ...reportSummaryRows.map((row) => [
+          row.staff.name,
+          row.staff.department || "-",
+          row.total,
+          row.present,
+          row.late,
+          row.absent,
+          row.excused,
+          `${row.lateMinutes} dk`,
+        ]),
+      ];
+      const detailBody = [
+        ["Tarih", "Personel", "Birim", "Giriş", "Durum", "Gecikme", "Açıklama"],
+        ...filteredReportRows.map((record) => {
+          const member = staffById.get(record.staffId);
+          return [
+            formatDateTr(record.date),
+            member?.name ?? "-",
+            member?.department ?? "-",
+            record.checkInTime || "-",
+            statusLabels[record.status],
+            record.status === "late" ? `${getRecordLateMinutes(record, settings)} dk` : "-",
+            record.lateReason || "-",
+          ];
+        }),
+      ];
+      const card = (label: string, value: string | number, tone: string) => ({
+        stack: [
+          { text: label, fontSize: 7.4, color: "#5b6b82", bold: true },
+          { text: String(value), fontSize: 18, color: tone, bold: true, margin: [0, 4, 0, 0] },
+        ],
+        margin: [9, 8, 9, 8],
+      });
+      const tableLayout = {
+        fillColor: (rowIndex: number) => (rowIndex === 0 ? "#e7eefb" : rowIndex % 2 === 0 ? "#f8fafc" : null),
+        hLineColor: () => "#d6deea",
+        vLineColor: () => "#d6deea",
+        hLineWidth: () => 0.6,
+        vLineWidth: () => 0.6,
+        paddingLeft: () => 5,
+        paddingRight: () => 5,
+        paddingTop: () => 5,
+        paddingBottom: () => 5,
+      };
+      const docDefinition = {
+        pageSize: "A4",
+        pageMargins: [34, 38, 34, 38],
+        defaultStyle: { font: "Roboto", fontSize: 8.2, color: "#263a5d" },
+        content: [
+          { text: settings.companyName, fontSize: 10, bold: true, color: "#356cff" },
+          { text: "PERSONEL DEVAM VE PUANTAJ RAPORU", fontSize: 18, bold: true, color: "#162b4d", margin: [0, 5, 0, 3] },
+          { text: `Rapor dönemi: ${period}`, color: "#52657f", margin: [0, 0, 0, 2] },
+          { text: `Kapsam: ${filterParts.join(" · ")}`, color: "#52657f", margin: [0, 0, 0, 14] },
+          {
+            table: {
+              widths: ["25%", "25%", "25%", "25%"],
+              body: [[
+                card("İşe gelinen gün", attendanceReport.attendedDays, "#18864b"),
+                card("Gelmedi", attendanceReport.absentDays, "#c0362c"),
+                card("İzin / rapor", attendanceReport.excusedDays, "#3e64c5"),
+                card("Devam oranı", `%${attendanceRate}`, "#356cff"),
+              ]],
+            },
+            layout: { fillColor: () => "#f7f9fd", hLineColor: () => "#d6deea", vLineColor: () => "#d6deea", hLineWidth: () => 0.7, vLineWidth: () => 0.7 },
+            margin: [0, 0, 0, 16],
+          },
+          { text: "Dönem Özeti", fontSize: 12, bold: true, color: "#162b4d", margin: [0, 0, 0, 7] },
+          {
+            ul: [
+              `${filteredReportRows.length} devam kaydı, ${reportSummaryRows.length} personel için değerlendirildi.`,
+              `Geç kalınan gün: ${attendanceReport.lateDays}; toplam gecikme: ${attendanceReport.totalLateMinutes} dakika.`,
+              `Devamsızlık oranı: %${absenceRate}; beklenen çalışma günü: ${expectedAttendanceDays}.`,
+            ],
+            margin: [0, 0, 0, 16],
+          },
+          { text: "Personel Bazlı Özet", fontSize: 12, bold: true, color: "#162b4d", margin: [0, 0, 0, 7] },
+          {
+            table: { headerRows: 1, widths: ["*", 56, 34, 34, 28, 40, 35, 45], body: summaryBody },
+            layout: tableLayout,
+          },
+          { text: "Günlük Kayıt Detayı", fontSize: 12, bold: true, color: "#162b4d", margin: [0, 18, 0, 7], pageBreak: "before" },
+          {
+            table: { headerRows: 1, widths: [59, "*", 58, 36, 47, 41, "*"], body: detailBody },
+            layout: tableLayout,
+          },
+        ],
+        styles: { tableHeader: { bold: true } },
+        footer: (currentPage: number, pageCount: number) => ({
+          columns: [
+            { text: `Oluşturulma: ${new Date().toLocaleString("tr-TR")}`, alignment: "left" },
+            { text: `Sayfa ${currentPage} / ${pageCount}`, alignment: "right" },
+          ],
+          margin: [34, 10, 34, 0],
+          fontSize: 7,
+          color: "#7b8aa5",
+        }),
+      };
+      const personPart = reportStaffId === "all" ? "tum-personel" : staffById.get(reportStaffId)?.name ?? "personel";
+      pdfMake.createPdf(docDefinition).download(`devam-raporu-${safeFilename(personPart)}-${reportStart}-${reportEnd}.pdf`);
+    } catch {
+      setMessage("Devam raporu PDF dosyası oluşturulamadı.");
+    }
+  }
+
   function handleExportExcel() {
     const detailRows: Array<Array<string | number>> = [
       ["Tarih", "Personel", "Departman", "Ünvan", "Giriş Saati", "Durum", "Gecikme Dk", "Açıklama"],
@@ -5713,6 +5836,10 @@ function App() {
               <button className="secondary-action" onClick={handleExportExcel} disabled={!staff.length}>
                 <FileSpreadsheet size={18} aria-hidden="true" />
                 Excel
+              </button>
+              <button className="secondary-action" onClick={() => void handleDownloadAttendanceReportPdf()} disabled={!filteredReportRows.length}>
+                <FileDown size={18} aria-hidden="true" />
+                PDF Rapor
               </button>
               <button className="primary-action" onClick={handleExportCsv} disabled={!filteredReportRows.length}>
                 <FileDown size={18} aria-hidden="true" />
