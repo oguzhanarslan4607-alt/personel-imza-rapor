@@ -1507,6 +1507,7 @@ function App() {
   const [message, setMessage] = useState("");
 
   const activeStaff = useMemo(() => sortStaff(staff.filter((member) => member.active)), [staff]);
+  const departedStaff = useMemo(() => sortStaff(staff.filter((member) => !member.active)), [staff]);
   const signatureStaff = useMemo(
     () => activeStaff.filter((member) => member.showOnSignatureSheet !== false),
     [activeStaff],
@@ -7211,11 +7212,22 @@ function App() {
               <label className="wide-filter">
                 Personel
                 <select value={profileStaff?.id ?? ""} onChange={(event) => setProfileStaffId(event.target.value)}>
-                  {staff.map((member, index) => (
-                    <option key={member.id} value={member.id}>
-                      {index + 1}. {member.name}{member.active ? "" : " — İşten ayrıldı"}
-                    </option>
-                  ))}
+                  <optgroup label="Aktif çalışanlar">
+                    {activeStaff.map((member, index) => (
+                      <option key={member.id} value={member.id}>
+                        {index + 1}. {member.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {departedStaff.length > 0 && (
+                    <optgroup label="İşten ayrılanlar">
+                      {departedStaff.map((member, index) => (
+                        <option key={member.id} value={member.id}>
+                          {activeStaff.length + index + 1}. {member.name} — İşten ayrıldı
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
               </label>
               <label>
