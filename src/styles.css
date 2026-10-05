@@ -776,6 +776,61 @@ button:disabled {
   font-weight: 900;
 }
 
+.leave-date-range-list {
+  display: grid;
+  gap: 6px;
+  min-width: 235px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.leave-date-range-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 8px;
+  border-left: 3px solid #7f9cff;
+  border-radius: 0 6px 6px 0;
+  background: #f5f8ff;
+}
+
+.leave-date-range-list li::before {
+  content: counter(list-item);
+  display: inline-grid;
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #356cff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.leave-date-range-list li {
+  counter-increment: list-item;
+}
+
+.leave-date-range-list {
+  counter-reset: list-item;
+}
+
+.leave-date-range-list li > span {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  gap: 5px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.leave-date-range-list strong { font-size: 12px; }
+.leave-date-range-list em { color: #7790bc; font-style: normal; font-weight: 900; }
+.leave-date-range-list small { margin-left: auto; color: var(--muted); font-size: 10px; font-weight: 800; white-space: nowrap; }
+
 .bulk-fixed-box {
   display: grid;
   gap: 10px;

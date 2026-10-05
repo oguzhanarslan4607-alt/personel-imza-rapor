@@ -9515,7 +9515,7 @@ function UnpaidLeaveGroupsTable({
               <th>Kayıt</th>
               <th>Yıl</th>
               <th>Tür</th>
-              <th>Tarih Aralıkları</th>
+              <th>İzin Tarihleri</th>
               <th>Toplam Gün</th>
               <th>Durum Özeti</th>
               <th>Notlar</th>
@@ -9539,7 +9539,7 @@ function UnpaidLeaveGroupsTable({
                   <td>{group.records.length}</td>
                   <td>{group.year}</td>
                   <td>{annualLeaveTypeLabels[group.leaveType]}</td>
-                  <td>{group.dateRanges.join(", ")}</td>
+                  <td><LeaveDateRangeList records={group.records} /></td>
                   <td>{group.usedDays}</td>
                   <td><span className="status-toggle">{group.statusSummary}</span></td>
                   <td>{group.notes.join(" / ") || "-"}</td>
@@ -9566,6 +9566,27 @@ function UnpaidLeaveGroupsTable({
       </div>
       {!groups.length && <div className="empty-state">{emptyText}</div>}
     </>
+  );
+}
+
+function LeaveDateRangeList({ records }: { records: AnnualLeaveRecord[] }) {
+  const sortedRecords = [...records].sort(
+    (a, b) => a.startDate.localeCompare(b.startDate) || a.endDate.localeCompare(b.endDate),
+  );
+
+  return (
+    <ol className="leave-date-range-list">
+      {sortedRecords.map((record) => (
+        <li key={record.id}>
+          <span>
+            <strong>{formatDateDotTr(record.startDate)}</strong>
+            <em>→</em>
+            <strong>{formatDateDotTr(record.endDate)}</strong>
+          </span>
+          <small>{record.usedDays} gün · {leaveStatusLabels[record.status]}</small>
+        </li>
+      ))}
+    </ol>
   );
 }
 
@@ -9613,7 +9634,7 @@ function GroupedLeavePrintReport({
           <th>Departman</th>
           <th>Ünvan</th>
           <th>Kayıt</th>
-          <th>Tarih Aralıkları</th>
+          <th>İzin Tarihleri</th>
           <th>Toplam Gün</th>
           <th>Durum Özeti</th>
           <th>Notlar</th>
@@ -9630,7 +9651,7 @@ function GroupedLeavePrintReport({
               <td>{member?.department ?? ""}</td>
               <td>{member?.title ?? ""}</td>
               <td>{group.records.length}</td>
-              <td>{group.dateRanges.join(", ")}</td>
+              <td><LeaveDateRangeList records={group.records} /></td>
               <td>{group.usedDays}</td>
               <td>{group.statusSummary}</td>
               <td>{group.notes.join(" / ")}</td>
