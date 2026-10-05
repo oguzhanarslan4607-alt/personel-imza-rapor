@@ -5003,8 +5003,8 @@ function App() {
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
-          record.startDate,
-          record.endDate,
+          formatDateDotTr(record.startDate),
+          formatDateDotTr(record.endDate),
           record.dayCount,
           record.reason,
           incapacityStatusLabels[record.status],
@@ -5033,20 +5033,20 @@ function App() {
 
   function getHolidayWorkExportRows() {
     return [
-      ["Personel", "Departman", "Ünvan", "Ay", "Tarihler", "Tatiller", "Saatler", "Toplam Saat", "Karşılık", "Not"],
-      ...holidayWorkGroups.map((group) => {
-        const member = staffById.get(group.staffId);
+      ["Personel", "Departman", "Ünvan", "Tarih", "Resmi Tatil", "Başlangıç", "Bitiş", "Çalışma Saati", "Karşılık", "Not"],
+      ...holidayWorkRowsForMonth.map((record) => {
+        const member = staffById.get(record.staffId);
         return [
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
-          formatMonthTr(group.month),
-          group.dates.join(", "),
-          group.holidayNames.join(", "),
-          group.timeRanges.join(", "),
-          group.hours,
-          group.compensationSummary,
-          group.notes.join(" / "),
+          formatDateDotTr(record.date),
+          record.holidayName,
+          record.startTime,
+          record.endTime,
+          record.hours,
+          holidayCompensationLabels[record.compensationType],
+          record.notes || "-",
         ];
       }),
     ];
@@ -5068,22 +5068,22 @@ function App() {
 
   function getHourlyLeaveExportRows() {
     return [
-      ["Personel", "Departman", "Ünvan", "Kayıt", "Tarihler", "Saat Detayları", "Toplam Süre", "Toplam Dakika", "Gün", "Durum Özeti", "Sebepler", "Notlar"],
-      ...hourlyLeaveGroups.map((group) => {
-        const member = staffById.get(group.staffId);
+      ["Personel", "Departman", "Ünvan", "Tarih", "Başlangıç", "Bitiş", "Süre", "Dakika", "Gün", "Durum", "Sebep", "Not"],
+      ...hourlyLeaveRowsForMonth.map((record) => {
+        const member = staffById.get(record.staffId);
         return [
           member?.name ?? "",
           member?.department ?? "",
           member?.title ?? "",
-          group.records.length,
-          group.dates.join(", "),
-          group.timeRanges.join(", "),
-          formatLeaveDuration(group.minutes),
-          group.minutes,
-          getHourlyLeaveDays(group.minutes),
-          group.statusSummary,
-          group.reasons.join(" / "),
-          group.notes.join(" / "),
+          formatDateDotTr(record.date),
+          record.startTime,
+          record.endTime,
+          formatLeaveDuration(record.minutes),
+          record.minutes,
+          getHourlyLeaveDays(record.minutes),
+          hourlyLeaveStatusLabels[record.status],
+          record.reason || "-",
+          record.notes || "-",
         ];
       }),
     ];
@@ -5129,23 +5129,23 @@ function App() {
 
   function getGroupedLeaveExportRows(groups: LeaveGroup[]) {
     return [
-      ["Personel", "Personel Durumu", "Departman", "Ünvan", "Kayıt", "Yıl", "Tür", "Tarih Aralıkları", "Toplam Gün", "Durum Özeti", "Notlar"],
-      ...groups.map((group) => {
-        const member = staffById.get(group.staffId);
+      ["Personel", "Personel Durumu", "Departman", "Ünvan", "Yıl", "Tür", "Başlangıç", "Bitiş", "Toplam Gün", "Durum", "Not"],
+      ...groups.flatMap((group) => group.records.map((record) => {
+        const member = staffById.get(record.staffId);
         return [
           member?.name ?? "",
           getStaffDepartureLabel(member),
           member?.department ?? "",
           member?.title ?? "",
-          group.records.length,
-          group.year,
-          annualLeaveTypeLabels[group.leaveType],
-          group.dateRanges.join(", "),
-          group.usedDays,
-          group.statusSummary,
-          group.notes.join(" / "),
+          record.year,
+          annualLeaveTypeLabels[record.leaveType],
+          formatDateDotTr(record.startDate),
+          formatDateDotTr(record.endDate),
+          record.usedDays,
+          leaveStatusLabels[record.status],
+          record.notes || "-",
         ];
-      }),
+      })),
     ];
   }
 
@@ -7987,7 +7987,7 @@ function App() {
           />
         ) : printMode === "holidayWork" ? (
           <HolidayWorkPrintReport
-            groups={holidayWorkGroups}
+            records={holidayWorkRowsForMonth}
             staffById={staffById}
             stats={holidayWorkStats}
             reportMonth={holidayReportMonth}
@@ -8012,7 +8012,7 @@ function App() {
           />
         ) : printMode === "hourlyLeave" ? (
           <HourlyLeavePrintReport
-            groups={hourlyLeaveGroups}
+            records={hourlyLeaveRowsForMonth}
             staffById={staffById}
             stats={hourlyLeaveStats}
             reportMonth={hourlyLeaveReportMonth}
@@ -8099,7 +8099,7 @@ function IncapacityPrintReport({
                 <td>{record.reportNumber || "-"}</td>
                 <td>{member?.name ?? ""}</td>
                 <td>{member?.department ?? ""}</td>
-                <td>{record.startDate} - {record.endDate}</td>
+                <td>{formatDateDotTr(record.startDate)} - {formatDateDotTr(record.endDate)}</td>
                 <td>{record.dayCount}</td>
                 <td>{record.reason}</td>
                 <td>{incapacityStatusLabels[record.status]}</td>
@@ -8114,17 +8114,17 @@ function IncapacityPrintReport({
 }
 
 function HolidayWorkPrintReport({
-  groups,
+  records,
   staffById,
   stats,
   reportMonth,
 }: {
-  groups: HolidayWorkGroup[];
+  records: HolidayWorkRecord[];
   staffById: Map<string, StaffMember>;
   stats: { total: number; hours: number; leaveCompensation: number; paidCompensation: number };
   reportMonth: string;
 }) {
-  const sortedGroups = [...groups].sort((a, b) => a.month.localeCompare(b.month) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
+  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"));
 
   return (
     <article className="holiday-report-page">
@@ -8159,28 +8159,28 @@ function HolidayWorkPrintReport({
             <th>No</th>
             <th>Personel</th>
             <th>Departman</th>
-            <th>Ay / Tarihler</th>
-            <th>Tatiller</th>
-            <th>Saatler</th>
-            <th>Toplam</th>
+            <th>Tarih</th>
+            <th>Resmi Tatil</th>
+            <th>Çalışma Saati</th>
+            <th>Süre</th>
             <th>Karşılık</th>
             <th>Not</th>
           </tr>
         </thead>
         <tbody>
-          {sortedGroups.map((group, index) => {
-            const member = staffById.get(group.staffId);
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
             return (
-              <tr key={group.id}>
+              <tr key={record.id}>
                 <td>{index + 1}</td>
                 <td>{member?.name ?? ""}</td>
                 <td>{member?.department ?? ""}</td>
-                <td>{formatMonthTr(group.month)} / {group.dates.join(", ")}</td>
-                <td>{group.holidayNames.join(", ")}</td>
-                <td>{group.timeRanges.join(", ")}</td>
-                <td>{group.hours}</td>
-                <td>{group.compensationSummary}</td>
-                <td>{group.notes.join(" / ")}</td>
+                <td>{formatDateDotTr(record.date)}</td>
+                <td>{record.holidayName}</td>
+                <td>{record.startTime} - {record.endTime}</td>
+                <td>{record.hours} sa</td>
+                <td>{holidayCompensationLabels[record.compensationType]}</td>
+                <td>{record.notes || "-"}</td>
               </tr>
             );
           })}
@@ -9658,34 +9658,36 @@ function GroupedLeavePrintReport({
           <th>Personel Durumu</th>
           <th>Departman</th>
           <th>Ünvan</th>
-          <th>Kayıt</th>
-          <th>İzin Tarihleri</th>
+          <th>Başlangıç</th>
+          <th>Bitiş</th>
           <th>Toplam Gün</th>
-          <th>Durum Özeti</th>
-          <th>Notlar</th>
+          <th>Durum</th>
+          <th>Not</th>
         </tr>
       </thead>
       <tbody>
-        {sectionGroups.map((group, index) => {
-          const member = staffById.get(group.staffId);
+        {sectionGroups.flatMap((group) => group.records).sort(
+          (a, b) => a.startDate.localeCompare(b.startDate) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"),
+        ).map((record, index) => {
+          const member = staffById.get(record.staffId);
           return (
-            <tr key={group.id}>
+            <tr key={record.id}>
               <td>{index + 1}</td>
               <td>{member?.name ?? ""}</td>
               <td>{getStaffDepartureLabel(member)}</td>
               <td>{member?.department ?? ""}</td>
               <td>{member?.title ?? ""}</td>
-              <td>{group.records.length}</td>
-              <td><LeaveDateRangeList records={group.records} /></td>
-              <td>{group.usedDays}</td>
-              <td>{group.statusSummary}</td>
-              <td>{group.notes.join(" / ")}</td>
+              <td>{formatDateDotTr(record.startDate)}</td>
+              <td>{formatDateDotTr(record.endDate)}</td>
+              <td>{record.usedDays}</td>
+              <td>{leaveStatusLabels[record.status]}</td>
+              <td>{record.notes || "-"}</td>
             </tr>
           );
         })}
         {!sectionGroups.length && (
           <tr>
-            <td colSpan={10}>Bu bölümde ücretsiz izin kaydı bulunmuyor.</td>
+            <td colSpan={11}>Bu bölümde ücretsiz izin kaydı bulunmuyor.</td>
           </tr>
         )}
       </tbody>
@@ -9734,20 +9736,20 @@ function GroupedLeavePrintReport({
 }
 
 function HourlyLeavePrintReport({
-  groups,
+  records,
   staffById,
   stats,
   reportMonth,
 }: {
-  groups: HourlyLeaveGroup[];
+  records: HourlyLeaveRecord[];
   staffById: Map<string, StaffMember>;
   stats: { records: number; minutes: number; used: number; planned: number; cancelled: number };
   reportMonth: string;
 }) {
-  const sortedGroups = [...groups].sort(
+  const sortedRecords = [...records].sort(
     (a, b) =>
-      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }) ||
-      a.staffId.localeCompare(b.staffId),
+      a.date.localeCompare(b.date) ||
+      (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr", { sensitivity: "base" }),
   );
 
   return (
@@ -9788,31 +9790,31 @@ function HourlyLeavePrintReport({
             <th>Personel</th>
             <th>Departman</th>
             <th>Ünvan</th>
-            <th>Kayıt</th>
-            <th>Tarihler</th>
-            <th>Saat Detayları</th>
-            <th>Toplam Süre</th>
+            <th>Tarih</th>
+            <th>Saat Aralığı</th>
+            <th>Süre</th>
             <th>Gün</th>
-            <th>Durum Özeti</th>
-            <th>Sebep / Not</th>
+            <th>Durum</th>
+            <th>Sebep</th>
+            <th>Not</th>
           </tr>
         </thead>
         <tbody>
-          {sortedGroups.map((group, index) => {
-            const member = staffById.get(group.staffId);
+          {sortedRecords.map((record, index) => {
+            const member = staffById.get(record.staffId);
             return (
-              <tr key={group.id}>
+              <tr key={record.id}>
                 <td>{index + 1}</td>
                 <td>{member?.name ?? ""}</td>
                 <td>{member?.department ?? ""}</td>
                 <td>{member?.title ?? ""}</td>
-                <td>{group.records.length}</td>
-                <td>{group.dates.join(", ")}</td>
-                <td>{group.timeRanges.join(", ")}</td>
-                <td>{formatLeaveDuration(group.minutes)}</td>
-                <td>{formatLeaveDayValue(group.minutes)}</td>
-                <td>{group.statusSummary}</td>
-                <td>{[group.reasons.join(" / "), group.notes.join(" / ")].filter(Boolean).join(" - ")}</td>
+                <td>{formatDateDotTr(record.date)}</td>
+                <td>{record.startTime} - {record.endTime}</td>
+                <td>{formatLeaveDuration(record.minutes)}</td>
+                <td>{formatLeaveDayValue(record.minutes)}</td>
+                <td>{hourlyLeaveStatusLabels[record.status]}</td>
+                <td>{record.reason || "-"}</td>
+                <td>{record.notes || "-"}</td>
               </tr>
             );
           })}
