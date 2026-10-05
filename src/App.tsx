@@ -1081,7 +1081,7 @@ function downloadExcelFile(filename: string, sections: Array<{ title: string; ro
                   .map(
                     (row, index) =>
                       `<tr>${row
-                        .map((cell) => `<${index === 0 ? "th" : "td"}>${excelEscape(cell)}</${index === 0 ? "th" : "td"}>`)
+                        .map((cell) => `<${index === 0 ? "th" : "td"}>${excelEscape(cell).replace(/\r?\n/g, "<br />")}</${index === 0 ? "th" : "td"}>`)
                         .join("")}</tr>`,
                   )
                   .join("")}
@@ -5129,23 +5129,26 @@ function App() {
 
   function getGroupedLeaveExportRows(groups: LeaveGroup[]) {
     return [
-      ["Personel", "Personel Durumu", "Departman", "Ünvan", "Yıl", "Tür", "Başlangıç", "Bitiş", "Toplam Gün", "Durum", "Not"],
-      ...groups.flatMap((group) => group.records.map((record) => {
-        const member = staffById.get(record.staffId);
+      ["Personel", "Personel Durumu", "Departman", "Ünvan", "Kayıt", "Yıl", "Tür", "İzin Kalemleri", "Toplam Gün", "Durum Özeti", "Notlar"],
+      ...groups.map((group) => {
+        const member = staffById.get(group.staffId);
+        const sortedRecords = [...group.records].sort(
+          (a, b) => a.startDate.localeCompare(b.startDate) || a.endDate.localeCompare(b.endDate),
+        );
         return [
           member?.name ?? "",
           getStaffDepartureLabel(member),
           member?.department ?? "",
           member?.title ?? "",
-          record.year,
-          annualLeaveTypeLabels[record.leaveType],
-          formatDateDotTr(record.startDate),
-          formatDateDotTr(record.endDate),
-          record.usedDays,
-          leaveStatusLabels[record.status],
-          record.notes || "-",
+          sortedRecords.length,
+          group.year,
+          annualLeaveTypeLabels[group.leaveType],
+          sortedRecords.map((record, index) => `${index + 1}. ${formatDateDotTr(record.startDate)} - ${formatDateDotTr(record.endDate)} (${record.usedDays} gün, ${leaveStatusLabels[record.status]})`).join("\n"),
+          group.usedDays,
+          group.statusSummary,
+          sortedRecords.map((record, index) => record.notes.trim() ? `${index + 1}. ${record.notes.trim()}` : "").filter(Boolean).join("\n") || "-",
         ];
-      })),
+      }),
     ];
   }
 
@@ -9658,30 +9661,28 @@ function GroupedLeavePrintReport({
           <th>Personel Durumu</th>
           <th>Departman</th>
           <th>Ünvan</th>
-          <th>Başlangıç</th>
-          <th>Bitiş</th>
+          <th>Kayıt</th>
+          <th>İzin Kalemleri</th>
           <th>Toplam Gün</th>
-          <th>Durum</th>
-          <th>Not</th>
+          <th>Durum Özeti</th>
+          <th>Notlar</th>
         </tr>
       </thead>
       <tbody>
-        {sectionGroups.flatMap((group) => group.records).sort(
-          (a, b) => a.startDate.localeCompare(b.startDate) || (staffById.get(a.staffId)?.name ?? "").localeCompare(staffById.get(b.staffId)?.name ?? "", "tr"),
-        ).map((record, index) => {
-          const member = staffById.get(record.staffId);
+        {sectionGroups.map((group, index) => {
+          const member = staffById.get(group.staffId);
           return (
-            <tr key={record.id}>
+            <tr key={group.id}>
               <td>{index + 1}</td>
               <td>{member?.name ?? ""}</td>
               <td>{getStaffDepartureLabel(member)}</td>
               <td>{member?.department ?? ""}</td>
               <td>{member?.title ?? ""}</td>
-              <td>{formatDateDotTr(record.startDate)}</td>
-              <td>{formatDateDotTr(record.endDate)}</td>
-              <td>{record.usedDays}</td>
-              <td>{leaveStatusLabels[record.status]}</td>
-              <td>{record.notes || "-"}</td>
+              <td>{group.records.length}</td>
+              <td><LeaveDateRangeList records={group.records} /></td>
+              <td>{group.usedDays}</td>
+              <td>{group.statusSummary}</td>
+              <td>{group.notes.join(" / ") || "-"}</td>
             </tr>
           );
         })}
