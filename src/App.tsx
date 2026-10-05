@@ -6554,9 +6554,7 @@ function App() {
                     <thead>
                       <tr>
                         <th>Personel</th>
-                        <th>Ay / Tarihler</th>
-                        <th>Tatiller</th>
-                        <th>Saatler</th>
+                        <th>Çalışma Kayıtları</th>
                         <th>Toplam</th>
                         <th>Karşılık</th>
                         <th>Not</th>
@@ -6570,12 +6568,7 @@ function App() {
                             <strong>{staffById.get(group.staffId)?.name ?? ""}</strong>
                             <span>{staffById.get(group.staffId)?.department ?? ""}</span>
                           </td>
-                          <td>
-                            <strong>{formatMonthTr(group.month)}</strong>
-                            <span>{group.dates.join(", ")}</span>
-                          </td>
-                          <td>{group.holidayNames.join(", ")}</td>
-                          <td>{group.timeRanges.join(", ")}</td>
+                          <td><HolidayWorkDetailList records={group.records} /></td>
                           <td>{group.hours}</td>
                           <td><span className="status-toggle">{group.compensationSummary}</span></td>
                           <td>{group.notes.join(" / ")}</td>
@@ -6735,8 +6728,7 @@ function App() {
                       <tr>
                         <th>Personel</th>
                         <th>Kayıt</th>
-                        <th>Tarihler</th>
-                        <th>Saat Detayları</th>
+                        <th>İzin Kayıtları</th>
                         <th>Toplam Süre</th>
                         <th>Gün</th>
                         <th>Durum Özeti</th>
@@ -6753,8 +6745,7 @@ function App() {
                               <span>{staffById.get(group.staffId)?.department ?? ""}</span>
                             </td>
                             <td>{group.records.length}</td>
-                            <td>{group.dates.join(", ")}</td>
-                            <td>{group.timeRanges.join(", ")}</td>
+                            <td><HourlyLeaveDetailList records={group.records} /></td>
                             <td>{formatLeaveDuration(group.minutes)}</td>
                             <td>{formatLeaveDayValue(group.minutes)}</td>
                             <td><span className="status-toggle">{group.statusSummary}</span></td>
@@ -6958,7 +6949,7 @@ function App() {
                       <th>Personel</th>
                       <th>Yıl</th>
                       <th>Tür</th>
-                      <th>Tarih</th>
+                      <th>İzin Tarihi</th>
                       <th>Gün</th>
                       <th>Kullanıldı</th>
                       <th>Planlanan</th>
@@ -6978,7 +6969,7 @@ function App() {
                           </td>
                           <td>{record.year}</td>
                           <td>{annualLeaveTypeLabels[record.leaveType]}</td>
-                          <td>{record.startDate} - {record.endDate}</td>
+                          <td><LeaveDateRangeList records={[record]} /></td>
                           <td>{record.usedDays}</td>
                           <td>{annualBreakdown.used}</td>
                           <td>{annualBreakdown.planned}</td>
@@ -9584,6 +9575,40 @@ function LeaveDateRangeList({ records }: { records: AnnualLeaveRecord[] }) {
             <strong>{formatDateDotTr(record.endDate)}</strong>
           </span>
           <small>{record.usedDays} gün · {leaveStatusLabels[record.status]}</small>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function HourlyLeaveDetailList({ records }: { records: HourlyLeaveRecord[] }) {
+  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  return (
+    <ol className="leave-date-range-list leave-detail-list">
+      {sortedRecords.map((record) => (
+        <li key={record.id}>
+          <span>
+            <strong>{formatDateDotTr(record.date)}</strong>
+            <em>{record.startTime} - {record.endTime}</em>
+          </span>
+          <small>{formatLeaveDuration(record.minutes)} · {hourlyLeaveStatusLabels[record.status]}</small>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function HolidayWorkDetailList({ records }: { records: HolidayWorkRecord[] }) {
+  const sortedRecords = [...records].sort((a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime));
+  return (
+    <ol className="leave-date-range-list leave-detail-list">
+      {sortedRecords.map((record) => (
+        <li key={record.id}>
+          <span>
+            <strong>{formatDateDotTr(record.date)}</strong>
+            <em>{record.holidayName}</em>
+          </span>
+          <small>{record.startTime} - {record.endTime} · {record.hours} sa</small>
         </li>
       ))}
     </ol>
