@@ -6333,7 +6333,7 @@ function App() {
                         <th>Personel</th>
                         <th>Rapor No</th>
                         <th>Tür</th>
-                        <th>Tarih</th>
+                        <th>Tarih Aralığı</th>
                         <th>Gün</th>
                         <th>Neden</th>
                         <th>Durum</th>
@@ -6351,7 +6351,7 @@ function App() {
                           </td>
                           <td>{record.reportNumber || "-"}</td>
                           <td>{incapacityReportTypeLabels[record.reportType ?? "illness"]}</td>
-                          <td>{record.startDate} - {record.endDate}</td>
+                          <td><IncapacityDateRange record={record} /></td>
                           <td>{record.dayCount}</td>
                           <td>{record.reason}</td>
                           <td><span className="status-toggle">{incapacityStatusLabels[record.status]}</span></td>
@@ -9581,6 +9581,20 @@ function LeaveDateRangeList({ records }: { records: AnnualLeaveRecord[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+function IncapacityDateRange({ record }: { record: IncapacityReportRecord }) {
+  return (
+    <div className="incapacity-date-range">
+      <span className="incapacity-date-index">1</span>
+      <div>
+        <strong>{formatDateDotTr(record.startDate)}</strong>
+        <i aria-hidden="true" />
+        <strong>{formatDateDotTr(record.endDate)}</strong>
+      </div>
+      <small>{record.dayCount} gün · {incapacityStatusLabels[record.status]}</small>
+    </div>
   );
 }
 

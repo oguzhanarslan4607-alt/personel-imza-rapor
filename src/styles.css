@@ -831,6 +831,35 @@ button:disabled {
 .leave-date-range-list em { color: #7790bc; font-style: normal; font-weight: 900; }
 .leave-date-range-list small { margin-left: auto; color: var(--muted); font-size: 10px; font-weight: 800; white-space: nowrap; }
 
+.incapacity-date-range {
+  display: grid;
+  grid-template-columns: 20px minmax(86px, 1fr) auto;
+  align-items: center;
+  min-width: 180px;
+  gap: 9px;
+  padding: 8px;
+  border-left: 3px solid #7f9cff;
+  border-radius: 0 7px 7px 0;
+  background: #f5f8ff;
+}
+
+.incapacity-date-index {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  background: #356cff;
+  font-size: 10px;
+  font-weight: 900;
+}
+
+.incapacity-date-range > div { display: grid; gap: 3px; }
+.incapacity-date-range strong { color: var(--ink); font-size: 12px; line-height: 1.1; }
+.incapacity-date-range i { width: 25px; height: 1px; background: #aab9d2; }
+.incapacity-date-range small { color: var(--muted); font-size: 10px; font-weight: 800; white-space: nowrap; }
+
 .leave-detail-list {
   min-width: 290px;
 }
