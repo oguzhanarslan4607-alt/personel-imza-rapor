@@ -573,10 +573,16 @@ function normalizeText(value: string) {
 }
 
 function matchesStaffSearch(member: StaffMember, search: string) {
-  const needle = normalizeText(search.trim());
+  const trimmedSearch = search.trim();
+  const needle = normalizeText(trimmedSearch);
   if (!needle) return true;
 
-  return normalizeText(`${member.name} ${member.department} ${member.title}`).includes(needle);
+  const textMatches = normalizeText(`${member.name} ${member.department} ${member.title}`).includes(needle);
+  const phoneNeedle = trimmedSearch.replace(/\D/g, "");
+  const phoneMatches =
+    phoneNeedle.length > 0 && (member.phone ?? "").replace(/\D/g, "").includes(phoneNeedle);
+
+  return textMatches || phoneMatches;
 }
 
 function getDepartments(staff: StaffMember[]) {
