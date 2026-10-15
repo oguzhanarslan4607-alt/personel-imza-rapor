@@ -25,6 +25,8 @@ import {
   Mail,
   Moon,
   MoreVertical,
+  PanelLeftClose,
+  PanelLeftOpen,
   PieChart,
   Plane,
   Plus,
@@ -271,23 +273,23 @@ type StaffInsight = {
   lastRecord: AttendanceRecord | null;
 };
 
-type NavigationTab = { key: TabKey; label: string; icon: typeof CalendarCheck };
+type NavigationTab = { key: TabKey; label: string; group: string; icon: typeof CalendarCheck };
 
 const tabs: NavigationTab[] = [
-  { key: "home", label: "Ana Sayfa", icon: LayoutDashboard },
-  { key: "daily", label: "Günlük Kayıt", icon: CalendarCheck },
-  { key: "print", label: "İmza Föyü", icon: Printer },
-  { key: "reports", label: "Raporlar", icon: BarChart3 },
-  { key: "incapacity", label: "İş Göremezlik Raporu", icon: FileSpreadsheet },
-  { key: "holidayWork", label: "Resmi Tatil Çalışan", icon: CalendarDays },
-  { key: "hourlyLeave", label: "Saatlik İzin Takibi", icon: CalendarCheck },
-  { key: "annualLeave", label: "Yıllık İzin Takibi", icon: CalendarCheck },
-  { key: "unpaidLeave", label: "Ücretsiz İzin Takibi", icon: CalendarCheck },
-  { key: "timesheet", label: "Puantaj Takibi", icon: Timer },
-  { key: "profiles", label: "Profil", icon: UserRound },
-  { key: "bulk", label: "Toplu İşlem", icon: CheckSquare },
-  { key: "staff", label: "Personel", icon: Users },
-  { key: "settings", label: "Ayarlar", icon: Settings },
+  { key: "home", label: "Ana Sayfa", group: "Genel", icon: LayoutDashboard },
+  { key: "daily", label: "Günlük Kayıt", group: "Genel", icon: CalendarCheck },
+  { key: "print", label: "İmza Föyü", group: "Genel", icon: Printer },
+  { key: "reports", label: "Raporlar", group: "Genel", icon: BarChart3 },
+  { key: "incapacity", label: "İş Göremezlik Raporu", group: "İzin ve Puantaj", icon: FileSpreadsheet },
+  { key: "holidayWork", label: "Resmi Tatil Çalışan", group: "İzin ve Puantaj", icon: CalendarDays },
+  { key: "hourlyLeave", label: "Saatlik İzin Takibi", group: "İzin ve Puantaj", icon: CalendarCheck },
+  { key: "annualLeave", label: "Yıllık İzin Takibi", group: "İzin ve Puantaj", icon: CalendarCheck },
+  { key: "unpaidLeave", label: "Ücretsiz İzin Takibi", group: "İzin ve Puantaj", icon: CalendarCheck },
+  { key: "timesheet", label: "Puantaj Takibi", group: "İzin ve Puantaj", icon: Timer },
+  { key: "profiles", label: "Profil", group: "Personel Yönetimi", icon: UserRound },
+  { key: "bulk", label: "Toplu İşlem", group: "Personel Yönetimi", icon: CheckSquare },
+  { key: "staff", label: "Personel", group: "Personel Yönetimi", icon: Users },
+  { key: "settings", label: "Ayarlar", group: "Personel Yönetimi", icon: Settings },
 ];
 const tabKeys = tabs.map((tab) => tab.key);
 
@@ -300,23 +302,32 @@ function NavigationTabs({
   activeTab: TabKey;
   onSelect: (tab: TabKey) => void;
 }) {
+  const renderTab = (tab: NavigationTab) => {
+    const Icon = tab.icon;
+    return (
+      <button
+        key={tab.key}
+        className={activeTab === tab.key ? "is-active" : ""}
+        onClick={() => onSelect(tab.key)}
+        title={tab.label}
+        type="button"
+      >
+        <Icon size={18} aria-hidden="true" />
+        <span>{tab.label}</span>
+      </button>
+    );
+  };
+
   return (
     <nav className={className} aria-label="Ana bölümler">
-      {tabs.map((tab) => {
-        const Icon = tab.icon;
-        return (
-          <button
-            key={tab.key}
-            className={activeTab === tab.key ? "is-active" : ""}
-            onClick={() => onSelect(tab.key)}
-            title={tab.label}
-            type="button"
-          >
-            <Icon size={18} aria-hidden="true" />
-            <span>{tab.label}</span>
-          </button>
-        );
-      })}
+      {className === "tabbar"
+        ? Array.from(new Set(tabs.map((tab) => tab.group))).map((group) => (
+            <div className="side-nav-group" key={group}>
+              <span className="side-nav-label">{group}</span>
+              {tabs.filter((tab) => tab.group === group).map(renderTab)}
+            </div>
+          ))
+        : tabs.map(renderTab)}
     </nav>
   );
 }
@@ -1369,6 +1380,7 @@ function getLoginErrorMessage(error: unknown) {
 }
 
 function App() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [activeTab, setActiveTab] = useState<TabKey>(
     () => parseAppNavigation(window.location.search, tabKeys, "home").tab,
   );
@@ -5297,7 +5309,7 @@ function App() {
 
   return (
     <>
-      <div className="app-shell screen-only">
+      <div className={`app-shell screen-only${sidebarCollapsed ? " is-sidebar-collapsed" : ""}`}>
         <aside className="side-nav">
           <div className="side-brand">
             <img className="brand-logo side-logo" src={BRAND_LOGO_SRC} alt="Personel imza rapor logosu" />
@@ -5305,13 +5317,21 @@ function App() {
               <p className="eyebrow">Personel</p>
               <strong>İK Yönetimi</strong>
             </div>
+            <button
+              className="side-nav-toggle"
+              type="button"
+              onClick={() => setSidebarCollapsed((collapsed) => !collapsed)}
+              aria-label={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+              title={sidebarCollapsed ? "Menüyü genişlet" : "Menüyü daralt"}
+            >
+              {sidebarCollapsed ? <PanelLeftOpen size={17} aria-hidden="true" /> : <PanelLeftClose size={17} aria-hidden="true" />}
+            </button>
           </div>
 
-          <p className="side-nav-label">Yönetim</p>
           <NavigationTabs className="tabbar" activeTab={activeTab} onSelect={setActiveTab} />
 
           <div className="side-footer">
-            <span className={`side-status ${firebaseConfigured ? "is-online" : "is-local"}`}>
+            <span className={`side-status ${firebaseConfigured ? "is-online" : "is-local"}`} title={firebaseConfigured ? "Firebase bağlı" : "Yerel taslak"}>
               <Database size={16} aria-hidden="true" />
               {firebaseConfigured ? "Firebase bağlı" : "Yerel taslak"}
             </span>
