@@ -8528,6 +8528,9 @@ function HomeDashboard({
     .filter((record) => record.status !== "cancelled" && record.endDate >= today)
     .sort((a, b) => a.startDate.localeCompare(b.startDate))
     .slice(0, 4);
+  const upcomingLeaveCount = annualLeaveRecords.filter(
+    (record) => record.status !== "cancelled" && record.endDate >= today,
+  ).length;
   const plannedLeaveDays = annualLeaveRecords
     .filter((record) => record.status === "planned" && record.endDate >= today)
     .reduce((total, record) => total + record.usedDays, 0);
@@ -8753,6 +8756,28 @@ function HomeDashboard({
 
   return (
     <main className="workspace home-workspace">
+      <section className="home-kpi-grid" aria-label="Personel yönetimi hızlı özetleri">
+        <button className="home-kpi-card is-staff" type="button" onClick={() => onNavigate("profiles")}>
+          <span className="home-kpi-icon"><Users size={19} aria-hidden="true" /></span>
+          <span className="home-kpi-copy"><small>Aktif personel</small><strong>{activeStaff.length}</strong><em>{activeDepartmentCount} departmanda</em></span>
+          <ArrowRight className="home-kpi-arrow" size={16} aria-hidden="true" />
+        </button>
+        <button className="home-kpi-card is-leave" type="button" onClick={() => onNavigate("annualLeave")}>
+          <span className="home-kpi-icon"><Plane size={19} aria-hidden="true" /></span>
+          <span className="home-kpi-copy"><small>Planlanan izin</small><strong>{plannedLeaveDays}<i> gün</i></strong><em>Gelecek izin bakiyesi</em></span>
+          <ArrowRight className="home-kpi-arrow" size={16} aria-hidden="true" />
+        </button>
+        <button className="home-kpi-card is-upcoming" type="button" onClick={() => onNavigate("annualLeave")}>
+          <span className="home-kpi-icon"><CalendarCheck size={19} aria-hidden="true" /></span>
+          <span className="home-kpi-copy"><small>Yaklaşan izinler</small><strong>{upcomingLeaveCount}</strong><em>Aktif izin kaydı</em></span>
+          <ArrowRight className="home-kpi-arrow" size={16} aria-hidden="true" />
+        </button>
+        <button className="home-kpi-card is-entitled" type="button" onClick={() => setShowAnnualLeaveEligibleList(true)}>
+          <span className="home-kpi-icon"><CheckCircle2 size={19} aria-hidden="true" /></span>
+          <span className="home-kpi-copy"><small>Yıllık izne hak kazanan</small><strong>{annualLeaveEligibleStaff.length}</strong><em>Bu yıl</em></span>
+          <ArrowRight className="home-kpi-arrow" size={16} aria-hidden="true" />
+        </button>
+      </section>
       <section className="home-grid" aria-label="Ana sayfa özeti">
         <div className="home-column">
           <article className="home-card home-profile-card">
