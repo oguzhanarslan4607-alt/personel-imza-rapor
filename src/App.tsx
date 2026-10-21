@@ -2307,6 +2307,22 @@ function App() {
   const annualLeaveSummaries = useMemo(() => {
     const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
 
+    staff
+      .filter((member) =>
+        annualLeaveDepartmentFilter === "all" ||
+        (member.department.trim() || "Departmansız") === annualLeaveDepartmentFilter,
+      )
+      .forEach((member) => {
+        const entitlement = getAnnualEntitlementForStaff(member.id, annualLeaveYear, annualLeaveRecords, staffById);
+        summary.set(member.id, {
+          staff: member,
+          entitlement,
+          used: 0,
+          planned: 0,
+          remaining: entitlement,
+        });
+      });
+
     annualLeaveRowsForYearFiltered.forEach((record) => {
       const member = staffById.get(record.staffId);
       if (!member) return;
@@ -2334,7 +2350,7 @@ function App() {
     return Array.from(summary.values()).sort(
       (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
     );
-  }, [annualLeaveRecords, annualLeaveRowsForYearFiltered, annualLeaveYear, staffById, staffRankById]);
+  }, [annualLeaveDepartmentFilter, annualLeaveRecords, annualLeaveRowsForYearFiltered, annualLeaveYear, staff, staffById, staffRankById]);
   const annualLeaveStats = useMemo(
     () => ({
       records: annualLeaveRowsForYearFiltered.length,
