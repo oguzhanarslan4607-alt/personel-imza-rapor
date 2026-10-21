@@ -5214,6 +5214,87 @@ function App() {
     ]);
   }
 
+  function getAnnualLeaveSummaryExportRows() {
+    return [
+      ["Personel", "Personel Durumu", "Birim / Kategori", "Ünvan", "Hak Edilen Gün", "Kullanılan Gün", "Planlanan Gün", "Kalan Gün"],
+      ...annualLeaveSummaries.map((row) => [
+        row.staff.name,
+        row.staff.active ? "Aktif" : getStaffDepartureLabel(row.staff),
+        row.staff.department || "Departmansız",
+        row.staff.title || "-",
+        row.entitlement,
+        row.used,
+        row.planned,
+        row.remaining,
+      ]),
+    ];
+  }
+
+  function handleExportAnnualLeaveSummaryExcel() {
+    if (!annualLeaveSummaries.length) return;
+    const categoryName = annualLeaveDepartmentFilter === "all" ? "Tum-Birimler" : safeFilename(annualLeaveDepartmentFilter);
+    downloadExcelFile(`yillik-izin-ozeti-${annualLeaveYear}-${categoryName}.xls`, [
+      {
+        title: `${annualLeaveYear} Yıllık İzin Hak Özeti · ${annualLeaveDepartmentFilter === "all" ? "Tüm Birimler" : annualLeaveDepartmentFilter}`,
+        rows: getAnnualLeaveSummaryExportRows(),
+      },
+    ]);
+  }
+
+  async function handleDownloadAnnualLeaveSummaryPdf() {
+    if (!annualLeaveSummaries.length) return;
+
+    try {
+      const pdfMakeModule = await import("pdfmake/build/pdfmake");
+      const pdfFontsModule = await import("pdfmake/build/vfs_fonts");
+      const pdfMake = (pdfMakeModule.default ?? pdfMakeModule) as any;
+      configurePdfMake(pdfMake, (pdfFontsModule.default ?? pdfFontsModule) as any);
+      const categoryName = annualLeaveDepartmentFilter === "all" ? "Tüm Birimler" : annualLeaveDepartmentFilter;
+      const body = getAnnualLeaveSummaryExportRows();
+      const docDefinition = {
+        pageSize: "A4",
+        pageOrientation: "landscape",
+        pageMargins: [30, 34, 30, 36],
+        defaultStyle: { font: "Roboto", fontSize: 8, color: "#263a5d" },
+        content: [
+          { text: settings.companyName, fontSize: 10, bold: true, color: "#356cff", margin: [0, 0, 0, 4] },
+          { text: `${annualLeaveYear} YILLIK İZİN HAK ÖZETİ`, fontSize: 17, bold: true, color: "#1d3153", margin: [0, 0, 0, 4] },
+          { text: `Birim kategorisi: ${categoryName} · Personel sayısı: ${annualLeaveSummaries.length} · Oluşturulma: ${new Date().toLocaleDateString("tr-TR")}`, fontSize: 8, color: "#64748b", margin: [0, 0, 0, 14] },
+          {
+            table: {
+              headerRows: 1,
+              widths: ["*", 100, 95, 145, 55, 55, 55, 50],
+              body,
+            },
+            layout: {
+              fillColor: (rowIndex: number) => rowIndex === 0 ? "#e7eefb" : rowIndex % 2 === 0 ? "#f8fafc" : null,
+              hLineColor: () => "#d6deea",
+              vLineColor: () => "#d6deea",
+              hLineWidth: () => 0.6,
+              vLineWidth: () => 0.6,
+              paddingLeft: () => 5,
+              paddingRight: () => 5,
+              paddingTop: () => 5,
+              paddingBottom: () => 5,
+            },
+          },
+        ],
+        footer: (currentPage: number, pageCount: number) => ({
+          text: `Yıllık izin özeti · Sayfa ${currentPage} / ${pageCount}`,
+          alignment: "center",
+          fontSize: 7,
+          color: "#94a3b8",
+          margin: [0, 12, 0, 0],
+        }),
+      };
+      pdfMake.createPdf(docDefinition).download(
+        `yillik-izin-ozeti-${annualLeaveYear}-${safeFilename(categoryName)}.pdf`,
+      );
+    } catch {
+      setMessage("Yıllık izin özeti PDF dosyası oluşturulamadı.");
+    }
+  }
+
   function handleExportUnpaidLeaveExcel() {
     const sections = [
       {
@@ -6976,10 +7057,20 @@ function App() {
                     <h2>{annualLeaveYear} Kalan İzin Özeti</h2>
                     <span>Yıllık izin türündeki planlanan ve kullanılan günler hesaplanır</span>
                   </div>
-                  <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
-                    <RefreshCw size={18} aria-hidden="true" />
-                    Yenile
-                  </button>
+                  <div className="button-row">
+                    <button className="secondary-action" onClick={handleExportAnnualLeaveSummaryExcel} disabled={!annualLeaveSummaries.length}>
+                      <FileSpreadsheet size={18} aria-hidden="true" />
+                      Excel İndir
+                    </button>
+                    <button className="secondary-action" onClick={() => void handleDownloadAnnualLeaveSummaryPdf()} disabled={!annualLeaveSummaries.length}>
+                      <FileDown size={18} aria-hidden="true" />
+                      PDF İndir
+                    </button>
+                    <button className="secondary-action" onClick={() => void refreshHrRecords()} disabled={busy}>
+                      <RefreshCw size={18} aria-hidden="true" />
+                      Yenile
+                    </button>
+                  </div>
                 </div>
                 <div className="table-scroll">
                   <table className="data-table summary-table">
