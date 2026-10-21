@@ -610,6 +610,115 @@ button:disabled {
   gap: 10px;
 }
 
+.annual-leave-categories {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+  padding: 15px 16px 12px;
+  border: 1px solid #dfe7f2;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #fff, #f7f9fd);
+  box-shadow: 0 4px 14px rgba(31, 51, 83, 0.045);
+}
+
+.annual-leave-categories-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.annual-leave-categories-heading h2 {
+  margin: 0;
+  color: #263a5d;
+  font-size: 13px;
+  font-weight: 850;
+}
+
+.annual-leave-categories-heading span {
+  display: block;
+  margin-top: 3px;
+  color: #8190a7;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.annual-leave-categories-heading .annual-leave-category-count {
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 5px 9px;
+  border: 1px solid #dce5f1;
+  border-radius: 999px;
+  color: #627590;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 800;
+}
+
+.annual-leave-category-list {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding: 1px 1px 5px;
+  scrollbar-width: thin;
+}
+
+.annual-leave-category-list button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  min-width: 132px;
+  max-width: 220px;
+  min-height: 38px;
+  gap: 12px;
+  padding: 7px 10px;
+  border: 1px solid #e0e7f1;
+  border-radius: 9px;
+  color: #526581;
+  background: #fff;
+  font-size: 10px;
+  font-weight: 750;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 150ms ease, color 150ms ease, background 150ms ease, box-shadow 150ms ease;
+}
+
+.annual-leave-category-list button:hover {
+  border-color: #a9bfff;
+  color: #245ff5;
+  background: #f6f8ff;
+}
+
+.annual-leave-category-list button.is-selected {
+  border-color: #356cff;
+  color: #2455d6;
+  background: #edf2ff;
+  box-shadow: inset 0 0 0 1px rgba(53, 108, 255, 0.08);
+}
+
+.annual-leave-category-list button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.annual-leave-category-list button strong {
+  display: grid;
+  min-width: 21px;
+  height: 21px;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 7px;
+  color: #60728e;
+  background: #eef2f8;
+  font-size: 9px;
+}
+
+.annual-leave-category-list button.is-selected strong {
+  color: #fff;
+  background: #356cff;
+}
+
 .metric {
   display: grid;
   gap: 6px;
@@ -2824,6 +2933,7 @@ button:disabled {
 :root[data-theme="dark"] .data-panel,
 :root[data-theme="dark"] .settings-grid,
 :root[data-theme="dark"] .metric,
+:root[data-theme="dark"] .annual-leave-categories,
 :root[data-theme="dark"] .mini-stat,
 :root[data-theme="dark"] .dashboard-panel,
 :root[data-theme="dark"] .staff-insight,
@@ -2843,6 +2953,41 @@ button:disabled {
   color: var(--ink);
   border-color: var(--line);
   background: var(--panel);
+}
+
+:root[data-theme="dark"] .annual-leave-categories {
+  background: linear-gradient(135deg, var(--panel), #172338);
+}
+
+:root[data-theme="dark"] .annual-leave-categories-heading h2 {
+  color: var(--ink);
+}
+
+:root[data-theme="dark"] .annual-leave-categories-heading span {
+  color: var(--muted);
+}
+
+:root[data-theme="dark"] .annual-leave-categories-heading .annual-leave-category-count,
+:root[data-theme="dark"] .annual-leave-category-list button {
+  border-color: var(--line);
+  color: var(--ink);
+  background: #1e293b;
+}
+
+:root[data-theme="dark"] .annual-leave-category-list button.is-selected {
+  border-color: #5b82ff;
+  color: #dbe7ff;
+  background: #1b2b4a;
+}
+
+:root[data-theme="dark"] .annual-leave-category-list button strong {
+  color: #dbe4f4;
+  background: #334155;
+}
+
+:root[data-theme="dark"] .annual-leave-category-list button.is-selected strong {
+  color: #fff;
+  background: #356cff;
 }
 
 :root[data-theme="dark"] .holiday-calendar-item:hover,

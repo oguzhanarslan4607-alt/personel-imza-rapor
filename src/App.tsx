@@ -1449,6 +1449,7 @@ function App() {
   const [hourlyLeaveReportMonth, setHourlyLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [annualLeaveReportMonth, setAnnualLeaveReportMonth] = useState(todayIso().slice(0, 7));
   const [unpaidLeaveReportMonth, setUnpaidLeaveReportMonth] = useState(todayIso().slice(0, 7));
+  const [annualLeaveDepartmentFilter, setAnnualLeaveDepartmentFilter] = useState("all");
   const [incapacityReportStaffId, setIncapacityReportStaffId] = useState("all");
   const [hourlyLeaveReportStaffId, setHourlyLeaveReportStaffId] = useState("all");
   const [annualLeaveReportStaffId, setAnnualLeaveReportStaffId] = useState("all");
@@ -2284,10 +2285,29 @@ function App() {
     () => annualLeaveTrackingRecords.filter((record) => record.year === annualLeaveYear),
     [annualLeaveTrackingRecords, annualLeaveYear],
   );
+  const annualLeaveRowsForYearFiltered = useMemo(
+    () => annualLeaveRowsForYear.filter((record) => {
+      const department = staffById.get(record.staffId)?.department.trim() || "Departmansız";
+      return annualLeaveDepartmentFilter === "all" || department === annualLeaveDepartmentFilter;
+    }),
+    [annualLeaveDepartmentFilter, annualLeaveRowsForYear, staffById],
+  );
+  const annualLeaveDepartmentCategories = useMemo(() => {
+    const categories = getDepartments(staff);
+    if (staff.some((member) => !member.department.trim())) categories.push("Departmansız");
+    return categories;
+  }, [staff]);
+  const annualLeaveDepartmentCounts = useMemo(
+    () => new Map(annualLeaveDepartmentCategories.map((category) => [
+      category,
+      staff.filter((member) => (member.department.trim() || "Departmansız") === category).length,
+    ])),
+    [annualLeaveDepartmentCategories, staff],
+  );
   const annualLeaveSummaries = useMemo(() => {
     const summary = new Map<string, { staff: StaffMember; entitlement: number; used: number; planned: number; remaining: number }>();
 
-    annualLeaveRowsForYear.forEach((record) => {
+    annualLeaveRowsForYearFiltered.forEach((record) => {
       const member = staffById.get(record.staffId);
       if (!member) return;
 
@@ -2314,19 +2334,19 @@ function App() {
     return Array.from(summary.values()).sort(
       (a, b) => (staffRankById.get(a.staff.id) ?? 0) - (staffRankById.get(b.staff.id) ?? 0),
     );
-  }, [annualLeaveRecords, annualLeaveRowsForYear, annualLeaveYear, staffById, staffRankById]);
+  }, [annualLeaveRecords, annualLeaveRowsForYearFiltered, annualLeaveYear, staffById, staffRankById]);
   const annualLeaveStats = useMemo(
     () => ({
-      records: annualLeaveRowsForYear.length,
-      used: annualLeaveRowsForYear
+      records: annualLeaveRowsForYearFiltered.length,
+      used: annualLeaveRowsForYearFiltered
         .filter((record) => record.leaveType === "annual")
         .reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).used, 0),
-      planned: annualLeaveRowsForYear
+      planned: annualLeaveRowsForYearFiltered
         .filter((record) => record.leaveType === "annual")
         .reduce((sum, record) => sum + getAnnualLeaveUsageBreakdown(record).planned, 0),
       remaining: annualLeaveSummaries.reduce((sum, row) => sum + row.remaining, 0),
     }),
-    [annualLeaveRowsForYear, annualLeaveSummaries],
+    [annualLeaveRowsForYearFiltered, annualLeaveSummaries],
   );
   const annualLeaveRowsForMonth = useMemo(() => {
     const monthStart = `${annualLeaveReportMonth}-01`;
@@ -2335,9 +2355,11 @@ function App() {
       (record) =>
         record.startDate <= monthEnd &&
         record.endDate >= monthStart &&
+        (annualLeaveDepartmentFilter === "all" ||
+          (staffById.get(record.staffId)?.department.trim() || "Departmansız") === annualLeaveDepartmentFilter) &&
         (annualLeaveReportStaffId === "all" || record.staffId === annualLeaveReportStaffId),
     );
-  }, [annualLeaveReportMonth, annualLeaveReportStaffId, annualLeaveTrackingRecords]);
+  }, [annualLeaveDepartmentFilter, annualLeaveReportMonth, annualLeaveReportStaffId, annualLeaveTrackingRecords, staffById]);
   const annualLeaveReportStats = useMemo(
     () => ({
       records: annualLeaveRowsForMonth.length,
@@ -6821,6 +6843,39 @@ function App() {
               <Metric label="Kullanıldı" value={annualLeaveStats.used} tone="amber" />
               <Metric label="Planlanan" value={annualLeaveStats.planned} tone="blue" />
               <Metric label="Kalan" value={annualLeaveStats.remaining} tone="green" />
+            </section>
+
+            <section className="annual-leave-categories" aria-label="Yıllık izin birim kategorileri">
+              <div className="annual-leave-categories-heading">
+                <div>
+                  <h2>Birim kategorileri</h2>
+                  <span>Özet ve izin kayıtlarını birime göre görüntüleyin</span>
+                </div>
+                <span className="annual-leave-category-count">{annualLeaveDepartmentCategories.length} birim</span>
+              </div>
+              <div className="annual-leave-category-list">
+                <button
+                  className={annualLeaveDepartmentFilter === "all" ? "is-selected" : ""}
+                  type="button"
+                  aria-pressed={annualLeaveDepartmentFilter === "all"}
+                  onClick={() => setAnnualLeaveDepartmentFilter("all")}
+                >
+                  <span>Tüm birimler</span>
+                  <strong>{staff.length}</strong>
+                </button>
+                {annualLeaveDepartmentCategories.map((category) => (
+                  <button
+                    className={annualLeaveDepartmentFilter === category ? "is-selected" : ""}
+                    key={category}
+                    type="button"
+                    aria-pressed={annualLeaveDepartmentFilter === category}
+                    onClick={() => setAnnualLeaveDepartmentFilter(category)}
+                  >
+                    <span>{category}</span>
+                    <strong>{annualLeaveDepartmentCounts.get(category) ?? 0}</strong>
+                  </button>
+                ))}
+              </div>
             </section>
 
             <section className="workspace two-column">
