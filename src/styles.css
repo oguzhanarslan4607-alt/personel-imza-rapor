@@ -5781,6 +5781,8 @@ textarea:focus {
     width: auto;
     min-height: calc(297mm - 16mm);
     padding: 0;
+    break-inside: avoid;
+    page-break-inside: avoid;
     page-break-after: always;
   }
 
@@ -5801,7 +5803,15 @@ textarea:focus {
 
   .signature-table th,
   .signature-table td {
-    height: 7mm;
+    height: 5mm;
+    padding-top: 0.5mm;
+    padding-bottom: 0.5mm;
+  }
+
+  .signature-table,
+  .sheet-footer {
+    break-inside: avoid;
+    page-break-inside: avoid;
   }
 
   .signature-table td:nth-child(2),
