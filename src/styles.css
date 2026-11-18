@@ -814,6 +814,20 @@ button:disabled {
   text-align: center;
 }
 
+.profile-period-divider th {
+  padding: 12px 14px;
+  color: #1d4ed8;
+  background: #edf3ff;
+  text-align: left;
+}
+
+.profile-period-divider span {
+  margin-left: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
 .holiday-calendar-panel {
   padding: 18px;
 }

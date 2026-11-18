@@ -1771,6 +1771,20 @@ function App() {
       }),
     [profileAnnualLeaveBalances, profileStaff],
   );
+  const profileAnnualLeavePeriodRows = useMemo(() => {
+    const cutoffDate = profileStaff?.mediationCompleted ? profileStaff.mediationDate : "";
+    const before: typeof profileAnnualLeaveBalanceRows = [];
+    const after: typeof profileAnnualLeaveBalanceRows = [];
+
+    profileAnnualLeaveBalanceRows.forEach((balance) => {
+      const balanceDate = balance.entitlementDate
+        ?? (balance.isEntryYear ? profileStaff?.startDate : `${balance.year}-01-01`)
+        ?? `${balance.year}-01-01`;
+      (cutoffDate && balanceDate >= cutoffDate ? after : before).push(balance);
+    });
+
+    return { before, after, cutoffDate };
+  }, [profileAnnualLeaveBalanceRows, profileStaff]);
   const profileAnnualLeaveExportTable = useMemo<ProfileExportTable | null>(
     () =>
       profileStaff
@@ -1779,9 +1793,14 @@ function App() {
             staffDetails: getProfileExportStaffDetails(profileStaff),
             title: "Yıllık İzin Hakları ve Devirler",
             subtitle: "Yıllık haklar, kullanılan günler ve sonraki yıla aktarılan bakiye",
-            notice: "İşe giriş yılında yıllık izin hakkı oluşmaz. İlk hak, bir yıllık çalışma tamamlandığında kazanılır.",
-            columns: ["Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Hak Edecek", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
+            notice: `İşe giriş yılında yıllık izin hakkı oluşmaz. İlk hak, bir yıllık çalışma tamamlandığında kazanılır.${profileAnnualLeavePeriodRows.cutoffDate ? ` Arabuluculuk dönemi, hak ediş tarihine göre ${profileAnnualLeavePeriodRows.cutoffDate} itibarıyla ayrılmıştır; bakiye hesabı değişmez.` : ""}`,
+            columns: ["Dönem", "Yıl", "Hak Ediş Tarihi", "Yıllık Hak", "Hak Edecek", "Önceki Yıldan Devir", "Kullanılan", "Planlanan", "Kalan / Devreden"],
             rows: profileAnnualLeaveBalanceRows.map((balance) => [
+              profileAnnualLeavePeriodRows.cutoffDate
+                ? (balance.entitlementDate ?? (balance.isEntryYear ? profileStaff.startDate ?? "" : `${balance.year}-01-01`)) >= profileAnnualLeavePeriodRows.cutoffDate
+                  ? "Arabuluculuk sonrası"
+                  : "Arabuluculuk öncesi"
+                : "-",
               balance.year,
               balance.entitlementDate ?? "-",
               balance.entitlement,
@@ -1795,7 +1814,7 @@ function App() {
             ]),
           }
         : null,
-    [profileAnnualLeaveBalanceRows, profileStaff],
+    [profileAnnualLeaveBalanceRows, profileAnnualLeavePeriodRows, profileStaff],
   );
   const profileLeaveStats = useMemo(() => {
     if (!profileStaff) {
@@ -7558,7 +7577,10 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {profileAnnualLeaveBalanceRows.map((balance) => (
+                        {profileMediationHistory && (
+                          <tr className="profile-period-divider"><th colSpan={8}>Arabuluculuk Öncesi <span>Hak ediş tarihi {profileMediationHistory.cutoffDate} öncesinde olan yıllar</span></th></tr>
+                        )}
+                        {(profileMediationHistory ? profileAnnualLeavePeriodRows.before : profileAnnualLeaveBalanceRows).map((balance) => (
                           <tr key={balance.year}>
                             <td><strong>{balance.year}</strong></td>
                             <td>{balance.entitlementDate ?? "-"}</td>
@@ -7576,6 +7598,33 @@ function App() {
                             <td><strong>{balance.carryOut} gün</strong></td>
                           </tr>
                         ))}
+                        {profileMediationHistory && !profileAnnualLeavePeriodRows.before.length && (
+                          <tr><td colSpan={8} className="empty-cell">Arabuluculuk tarihinden önce hak ediş tarihi olan yıl bulunmuyor.</td></tr>
+                        )}
+                        {profileMediationHistory && (
+                          <tr className="profile-period-divider"><th colSpan={8}>Arabuluculuk Sonrası <span>Hak ediş tarihi {profileMediationHistory.cutoffDate} ve sonrasında olan yıllar</span></th></tr>
+                        )}
+                        {profileMediationHistory && profileAnnualLeavePeriodRows.after.map((balance) => (
+                          <tr key={balance.year}>
+                            <td><strong>{balance.year}</strong></td>
+                            <td>{balance.entitlementDate ?? "-"}</td>
+                            <td>{balance.entitlement} gün</td>
+                            <td>
+                              {balance.isEntryYear
+                                ? <strong>İşe giriş yılı - hak yok</strong>
+                                : balance.pendingEntitlement > 0
+                                ? <strong>{balance.pendingEntitlement} gün</strong>
+                                : "-"}
+                            </td>
+                            <td>{balance.carryIn} gün</td>
+                            <td>{balance.used} gün</td>
+                            <td>{balance.planned} gün</td>
+                            <td><strong>{balance.carryOut} gün</strong></td>
+                          </tr>
+                        ))}
+                        {profileMediationHistory && !profileAnnualLeavePeriodRows.after.length && (
+                          <tr><td colSpan={8} className="empty-cell">Arabuluculuk tarihinden sonra hak ediş tarihi olan yıl bulunmuyor.</td></tr>
+                        )}
                       </tbody>
                     </table>
                   </div>
