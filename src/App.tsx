@@ -1980,6 +1980,16 @@ function App() {
 
     return { annual, unpaid, incapacity, hourly, holiday, deleted, other };
   }, [profileHistoryEvents]);
+  const profileMediationHistory = useMemo(() => {
+    const cutoffDate = profileStaff?.mediationCompleted ? profileStaff.mediationDate : "";
+    if (!cutoffDate) return null;
+
+    return {
+      before: profileHistoryEvents.filter((event) => event.date < cutoffDate),
+      after: profileHistoryEvents.filter((event) => event.date >= cutoffDate),
+      cutoffDate,
+    };
+  }, [profileHistoryEvents, profileStaff]);
   const selectedStaffInsight = useMemo<StaffInsight | null>(() => {
     if (!selectedStaff) return null;
 
@@ -7580,61 +7590,89 @@ function App() {
                   <Metric label="Gecikme Dk" value={profileStats.lateMinutes} tone="amber" />
                 </section>
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Yıllık İzin Geçmişi"
-                  subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • devir dahil kalan ${profileLeaveStats.annualRemaining} gün`}
-                  events={profileHistorySections.annual}
-                  emptyText="Bu personel için yıllık izin kaydı bulunmuyor."
-                />
+                {profileMediationHistory ? (
+                  <>
+                    <div className="notice">
+                      <strong>Arabuluculuk dönemi ayrımı</strong>
+                      <span>{profileMediationHistory.cutoffDate} tarihinden önceki ve bu tarihten itibaren olan kayıtlar ayrı listelenir. Kayıtlar ile yıllık izin hak ediş ve bakiye hesapları korunur.</span>
+                    </div>
+                    <ProfilePeriodHistoryPanel
+                      staff={profileStaff}
+                      title="Arabuluculuk Öncesi"
+                      subtitle={`${profileMediationHistory.cutoffDate} tarihinden önceki izin, rapor, tatil ve işlem kayıtları`}
+                      events={profileMediationHistory.before}
+                      emptyText="Arabuluculuk tarihinden önce kayıt bulunmuyor."
+                    />
+                    <ProfilePeriodHistoryPanel
+                      staff={profileStaff}
+                      title="Arabuluculuk Sonrası"
+                      subtitle={`${profileMediationHistory.cutoffDate} tarihi ve sonrasındaki izin, rapor, tatil ve işlem kayıtları`}
+                      events={profileMediationHistory.after}
+                      emptyText="Arabuluculuk tarihinden itibaren kayıt bulunmuyor."
+                    />
+                  </>
+                ) : (
+                  <>
+                    {profileStaff.mediationCompleted && !profileStaff.mediationDate && (
+                      <div className="notice"><strong>Arabuluculuk tarihi eksik.</strong> Kayıtları önce/sonra olarak ayırmak için personel kartına arabuluculuk tarihini girin.</div>
+                    )}
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Yıllık İzin Geçmişi"
+                      subtitle={`Toplam kullanılan ${profileLeaveStats.annualUsedTotal} gün • devir dahil kalan ${profileLeaveStats.annualRemaining} gün`}
+                      events={profileHistorySections.annual}
+                      emptyText="Bu personel için yıllık izin kaydı bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Ücretsiz İzin Geçmişi"
-                  subtitle={`Bugüne kadar toplam ${profileLeaveStats.unpaidUsedTotal} gün`}
-                  events={profileHistorySections.unpaid}
-                  emptyText="Bu personel için ücretsiz izin kaydı bulunmuyor."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Ücretsiz İzin Geçmişi"
+                      subtitle={`Bugüne kadar toplam ${profileLeaveStats.unpaidUsedTotal} gün`}
+                      events={profileHistorySections.unpaid}
+                      emptyText="Bu personel için ücretsiz izin kaydı bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="İş Göremezlik Raporları"
-                  subtitle={`Toplam ${profileLeaveStats.incapacityDays} raporlu gün`}
-                  events={profileHistorySections.incapacity}
-                  emptyText="Bu personel için iş göremezlik raporu bulunmuyor."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="İş Göremezlik Raporları"
+                      subtitle={`Toplam ${profileLeaveStats.incapacityDays} raporlu gün`}
+                      events={profileHistorySections.incapacity}
+                      emptyText="Bu personel için iş göremezlik raporu bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Saatlik İzin Geçmişi"
-                  subtitle={`Toplam ${formatLeaveDuration(profileLeaveStats.hourlyLeaveMinutes)} • ${getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} gün karşılığı`}
-                  events={profileHistorySections.hourly}
-                  emptyText="Bu personel için saatlik izin kaydı bulunmuyor."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Saatlik İzin Geçmişi"
+                      subtitle={`Toplam ${formatLeaveDuration(profileLeaveStats.hourlyLeaveMinutes)} • ${getHourlyLeaveDays(profileLeaveStats.hourlyLeaveMinutes)} gün karşılığı`}
+                      events={profileHistorySections.hourly}
+                      emptyText="Bu personel için saatlik izin kaydı bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Resmi Tatil Çalışmaları"
-                  subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
-                  events={profileHistorySections.holiday}
-                  emptyText="Bu personel için resmi tatil çalışma kaydı bulunmuyor."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Resmi Tatil Çalışmaları"
+                      subtitle={`Toplam ${profileLeaveStats.holidayWorkHours} saat`}
+                      events={profileHistorySections.holiday}
+                      emptyText="Bu personel için resmi tatil çalışma kaydı bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Silinen Kayıtlar"
-                  subtitle="İzin, rapor, resmi tatil ve devam kayıtlarındaki silme veya geri yükleme işlemleri"
-                  events={profileHistorySections.deleted}
-                  emptyText="Bu personel için silinen veya geri yüklenen kayıt bulunmuyor."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Silinen Kayıtlar"
+                      subtitle="İzin, rapor, resmi tatil ve devam kayıtlarındaki silme veya geri yükleme işlemleri"
+                      events={profileHistorySections.deleted}
+                      emptyText="Bu personel için silinen veya geri yüklenen kayıt bulunmuyor."
+                    />
 
-                <ProfileHistoryPanel
-                  staff={profileStaff}
-                  title="Diğer Personel İşlemleri"
-                  subtitle="Yalnızca personel kartı ve personel verisi değişiklikleri"
-                  events={profileHistorySections.other}
-                  emptyText="Bu personelin kart bilgilerinde henüz değişiklik yapılmamış."
-                />
+                    <ProfileHistoryPanel
+                      staff={profileStaff}
+                      title="Diğer Personel İşlemleri"
+                      subtitle="Yalnızca personel kartı ve personel verisi değişiklikleri"
+                      events={profileHistorySections.other}
+                      emptyText="Bu personelin kart bilgilerinde henüz değişiklik yapılmamış."
+                    />
+                  </>
+                )}
 
                 <section className="data-panel">
                   <div className="panel-heading">
@@ -9377,6 +9415,65 @@ function ProfileHistoryPanel({
             {events.map((event) => (
               <tr key={event.id}>
                 <td>{event.date}</td>
+                <td><strong>{event.action}</strong></td>
+                <td>{event.detail}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      {!events.length && <div className="empty-state">{emptyText}</div>}
+    </section>
+  );
+}
+
+function ProfilePeriodHistoryPanel({
+  staff,
+  title,
+  subtitle,
+  events,
+  emptyText,
+}: {
+  staff: StaffMember;
+  title: string;
+  subtitle: string;
+  events: ProfileHistoryEvent[];
+  emptyText: string;
+}) {
+  const exportTable: ProfileExportTable = {
+    staffName: staff.name,
+    staffDetails: getProfileExportStaffDetails(staff),
+    title,
+    subtitle,
+    notice: "Bu liste kayıtların arabuluculuk tarihine göre dönemsel görünümüdür. Hak ediş ve bakiye hesabı değiştirilmez.",
+    columns: ["Tarih", "Kayıt türü", "İşlem / Durum", "Detay"],
+    rows: events.map((event) => [event.date, event.category, event.action, event.detail]),
+  };
+
+  return (
+    <section className="data-panel">
+      <div className="panel-heading">
+        <div>
+          <h2>{title}</h2>
+          <span>{subtitle}</span>
+        </div>
+        <div className="button-row">
+          <button className="secondary-action" type="button" onClick={() => downloadProfileSectionExcel(exportTable)} disabled={!events.length}>
+            <FileSpreadsheet size={18} aria-hidden="true" /> Excel
+          </button>
+          <button className="secondary-action" type="button" onClick={() => void downloadProfileSectionPdf(exportTable)} disabled={!events.length}>
+            <FileDown size={18} aria-hidden="true" /> PDF
+          </button>
+        </div>
+      </div>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead><tr><th>Tarih</th><th>Kayıt türü</th><th>İşlem / Durum</th><th>Detay</th></tr></thead>
+          <tbody>
+            {events.map((event) => (
+              <tr key={event.id}>
+                <td>{event.date}</td>
+                <td>{event.category}</td>
                 <td><strong>{event.action}</strong></td>
                 <td>{event.detail}</td>
               </tr>
