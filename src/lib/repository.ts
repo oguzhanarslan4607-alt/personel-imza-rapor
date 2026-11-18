@@ -285,6 +285,13 @@ function normalizeStaffMember(member: StaffMember): StaffMember {
     showOnSignatureSheet: member.showOnSignatureSheet !== false,
     fixedStaff: Boolean(member.fixedStaff),
     startDate: member.startDate ?? "",
+    mediationCompleted: Boolean(member.mediationCompleted),
+    mediationDate: member.mediationDate ?? "",
+    postMediationStartDate: member.postMediationStartDate ?? "",
+    severancePaymentPlanned: Boolean(member.severancePaymentPlanned),
+    severanceAmount: typeof member.severanceAmount === "number" && Number.isFinite(member.severanceAmount)
+      ? member.severanceAmount
+      : undefined,
     endDate: member.endDate ?? "",
     departureType: member.departureType ?? "",
     departureReason: member.departureReason ?? "",

@@ -21,6 +21,11 @@ export type StaffMember = {
   showOnSignatureSheet?: boolean;
   fixedStaff?: boolean;
   startDate?: string;
+  mediationCompleted?: boolean;
+  mediationDate?: string;
+  postMediationStartDate?: string;
+  severancePaymentPlanned?: boolean;
+  severanceAmount?: number;
   endDate?: string;
   departureType?: string;
   departureReason?: string;

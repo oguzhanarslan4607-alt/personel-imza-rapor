@@ -1225,6 +1225,17 @@ function getProfileExportStaffDetails(staffMember: StaffMember) {
     { label: "Durum", value: staffMember.active ? "Aktif" : "Pasif" },
     { label: "Doğum Tarihi", value: staffMember.birthDate || "-" },
     { label: "İşe Giriş", value: staffMember.startDate || "-" },
+    { label: "Arabuluculuk", value: staffMember.mediationCompleted ? `Yapıldı${staffMember.mediationDate ? ` (${staffMember.mediationDate})` : ""}` : "Yapılmadı" },
+    ...(staffMember.mediationCompleted ? [
+      { label: "Yeni İşe Giriş Tarihi", value: staffMember.postMediationStartDate || "-" },
+      { label: "Kıdem Tazminatı", value: staffMember.severancePaymentPlanned ? "Ödenecek" : "Planlanmadı" },
+      ...(staffMember.severancePaymentPlanned ? [{
+        label: "Kıdem Tazminatı Tutarı",
+        value: typeof staffMember.severanceAmount === "number"
+          ? staffMember.severanceAmount.toLocaleString("tr-TR", { style: "currency", currency: "TRY" })
+          : "Tutar girilmedi",
+      }] : []),
+    ] : []),
     { label: "İşten Çıkış", value: staffMember.endDate || "-" },
     { label: "Çıkış Türü", value: departureTypeLabels[staffMember.departureType ?? ""] ?? "-" },
     { label: "Çıkış Nedeni", value: staffMember.departureReason || "-" },
@@ -3220,6 +3231,10 @@ function App() {
   async function handleUpdateStaff(event: FormEvent) {
     event.preventDefault();
     if (!editingStaff || !editingStaff.name.trim()) return;
+    if (editingStaff.mediationCompleted && editingStaff.severancePaymentPlanned && !(Number(editingStaff.severanceAmount) > 0)) {
+      setMessage("Kıdem tazminatı ödenecek olarak işaretlendi. Lütfen TL tutarını girin.");
+      return;
+    }
 
     setBusy(true);
     try {
@@ -3236,6 +3251,13 @@ function App() {
         showOnSignatureSheet: editingStaff.showOnSignatureSheet !== false,
         fixedStaff: Boolean(editingStaff.fixedStaff),
         startDate: editingStaff.startDate,
+        mediationCompleted: Boolean(editingStaff.mediationCompleted),
+        mediationDate: editingStaff.mediationCompleted ? editingStaff.mediationDate ?? "" : "",
+        postMediationStartDate: editingStaff.mediationCompleted ? editingStaff.postMediationStartDate ?? "" : "",
+        severancePaymentPlanned: editingStaff.mediationCompleted ? Boolean(editingStaff.severancePaymentPlanned) : false,
+        severanceAmount: editingStaff.mediationCompleted && editingStaff.severancePaymentPlanned
+          ? editingStaff.severanceAmount
+          : undefined,
         endDate: editingStaff.endDate,
         departureType: editingStaff.departureType?.trim() ?? "",
         departureReason: editingStaff.departureReason?.trim() ?? "",
@@ -8608,6 +8630,64 @@ function StaffEditDialog({
                 İşe Giriş
                 <input type="date" value={staff.startDate ?? ""} onChange={(event) => update({ startDate: event.target.value })} />
               </label>
+              <label className="staff-edit-switch">
+                <input
+                  type="checkbox"
+                  checked={Boolean(staff.mediationCompleted)}
+                  onChange={(event) => update({
+                    mediationCompleted: event.target.checked,
+                    mediationDate: event.target.checked ? staff.mediationDate ?? "" : "",
+                  })}
+                />
+                <span>
+                  <strong>Arabuluculuk yapıldı</strong>
+                  <small>Yeni işe giriş tarihi izleme içindir; mevcut işe giriş ve izin hesapları değişmez</small>
+                </span>
+              </label>
+              {staff.mediationCompleted && (
+                <>
+                  <label>
+                    Arabuluculuk Tarihi
+                    <input type="date" value={staff.mediationDate ?? ""} onChange={(event) => update({ mediationDate: event.target.value })} />
+                  </label>
+                  <label>
+                    Yeni İşe Giriş Tarihi (kayıt amaçlı)
+                    <input
+                      type="date"
+                      value={staff.postMediationStartDate ?? ""}
+                      onChange={(event) => update({ postMediationStartDate: event.target.value })}
+                    />
+                  </label>
+                  <label className="staff-edit-switch">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(staff.severancePaymentPlanned)}
+                      onChange={(event) => update({ severancePaymentPlanned: event.target.checked })}
+                    />
+                    <span>
+                      <strong>Kıdem tazminatı ödenecek</strong>
+                      <small>Ödeme takibi için işaretleyin</small>
+                    </span>
+                  </label>
+                  {staff.severancePaymentPlanned && (
+                    <label>
+                      Kıdem Tazminatı Tutarı (₺)
+                      <input
+                        type="number"
+                        min="0.01"
+                        step="0.01"
+                        inputMode="decimal"
+                        value={staff.severanceAmount ?? ""}
+                        onChange={(event) => update({
+                          severanceAmount: event.target.value === "" ? undefined : Number(event.target.value),
+                        })}
+                        placeholder="Örn. 125000,00"
+                        required
+                      />
+                    </label>
+                  )}
+                </>
+              )}
               <label>
                 İşten Çıkış
                 <input type="date" value={staff.endDate ?? ""} onChange={(event) => update({ endDate: event.target.value })} />
