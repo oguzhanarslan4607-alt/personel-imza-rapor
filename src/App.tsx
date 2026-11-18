@@ -7189,6 +7189,7 @@ function App() {
                   <thead>
                     <tr>
                       <th>Personel</th>
+                      <th>Departman</th>
                       <th>Yıl</th>
                       <th>Tür</th>
                       <th>İzin Tarihi</th>
@@ -7207,8 +7208,8 @@ function App() {
                         <tr key={record.id}>
                           <td>
                             <strong>{staffById.get(record.staffId)?.name ?? ""}</strong>
-                            <span>{staffById.get(record.staffId)?.department ?? ""}</span>
                           </td>
+                          <td>{staffById.get(record.staffId)?.department || "Departmansız"}</td>
                           <td>{record.year}</td>
                           <td>{annualLeaveTypeLabels[record.leaveType]}</td>
                           <td><LeaveDateRangeList records={[record]} /></td>
